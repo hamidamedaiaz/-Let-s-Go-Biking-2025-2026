@@ -5,6 +5,7 @@ using ProxyCacheService.ProxyModels;
 using SharedModels;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Net.Http;
 using System.ServiceModel;
 using System.Text;
@@ -156,18 +157,27 @@ namespace ProxyCacheService
 
                 string url = $"https://api.openrouteservice.org/v2/directions/{profile}";
 
+                // ✅ CORRECTION: Parse avec InvariantCulture
+                var startCoords = start.Split(',');
+                var endCoords = end.Split(',');
+
                 var payload = new
                 {
                     coordinates = new double[][]
                     {
-                new double[] { double.Parse(start.Split(',')[0]), double.Parse(start.Split(',')[1]) },
-                new double[] { double.Parse(end.Split(',')[0]), double.Parse(end.Split(',')[1]) }
+                new double[] {
+                    double.Parse(startCoords[0], CultureInfo.InvariantCulture),  // ← AJOUTER InvariantCulture
+                    double.Parse(startCoords[1], CultureInfo.InvariantCulture)   // ← AJOUTER InvariantCulture
+                },
+                new double[] {
+                    double.Parse(endCoords[0], CultureInfo.InvariantCulture),    // ← AJOUTER InvariantCulture
+                    double.Parse(endCoords[1], CultureInfo.InvariantCulture)     // ← AJOUTER InvariantCulture
+                }
                     },
                     instructions = true,
                     language = "fr",
                     instructions_format = "text"
                 };
-
                 var jsonBody = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
 

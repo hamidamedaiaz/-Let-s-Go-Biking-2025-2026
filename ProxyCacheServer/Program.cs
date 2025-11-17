@@ -4,8 +4,7 @@ using System;
 using System.IO;
 using System.ServiceModel;
 
-namespace ProxyCacheServer
-{
+namespace ProxyCacheServer { 
     internal class Program
     {
         static void Main(string[] args)

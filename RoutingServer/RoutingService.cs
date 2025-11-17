@@ -3,8 +3,10 @@ using ProxyCacheService;
 using SharedModels;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.ServiceModel;
+
 
 namespace RoutingServer
 {
@@ -17,9 +19,10 @@ namespace RoutingServer
             double lat2, double lon2)
         {
             string orsJson = proxy.CallORS(
-                "foot-walking",
-                $"{lon1},{lat1}",
-                $"{lon2},{lat2}");
+    "foot-walking",
+    $"{lon1.ToString(CultureInfo.InvariantCulture)},{lat1.ToString(CultureInfo.InvariantCulture)}",
+    $"{lon2.ToString(CultureInfo.InvariantCulture)},{lat2.ToString(CultureInfo.InvariantCulture)}");
+
             return ParseORSJson(orsJson, "walk");
         }
         private ItineraryData GetBikingSegment(
@@ -29,10 +32,10 @@ namespace RoutingServer
         {
             string orsJson = proxy.CallORS(
                 "cycling-regular",
-                $"{lon1},{lat1}",
-                $"{lon2},{lat2}");
+                $"{lon1.ToString(CultureInfo.InvariantCulture)},{lat1.ToString(CultureInfo.InvariantCulture)}",
+                 $"{lon2.ToString(CultureInfo.InvariantCulture)},{lat2.ToString(CultureInfo.InvariantCulture)}");
 
-            return ParseORSJson(orsJson, "bike");
+             return ParseORSJson(orsJson, "bike");
         }
 
         private ItineraryData ParseORSJson(string orsJson, string stepType)
@@ -80,23 +83,38 @@ namespace RoutingServer
         public ItineraryResult GetItinerary(
             string originLat,
             string originLon,
+            string originCity,
             string destLat,
             string destLon,
-            string originCity,
             string destCity)
         {
+            double oLat = double.Parse(originLat, CultureInfo.InvariantCulture);
+            double oLon = double.Parse(originLon, CultureInfo.InvariantCulture);
+            double dLat = double.Parse(destLat, CultureInfo.InvariantCulture);
+            double dLon = double.Parse(destLon, CultureInfo.InvariantCulture);
+
+            var binding = new BasicHttpBinding
+            {
+                MaxReceivedMessageSize = 1024 * 1024 * 10, // 10 MB
+                MaxBufferSize = 1024 * 1024 * 10,
+                MaxBufferPoolSize = 1024 * 1024 * 10,
+            };
+
+            binding.ReaderQuotas.MaxStringContentLength = 1024 * 1024 * 10;
+            binding.ReaderQuotas.MaxArrayLength = 1024 * 1024 * 10;
+            binding.ReaderQuotas.MaxBytesPerRead = 4096;
+            binding.ReaderQuotas.MaxDepth = 32;
+
             var factory = new ChannelFactory<IProxyCacheService>(
-                    new BasicHttpBinding(),
+                    binding,
                     new EndpointAddress("http://localhost:8080/ProxyCacheService"));
 
             var proxy = factory.CreateChannel();
 
             try
             {
-                double oLat = double.Parse(originLat);
-                double oLon = double.Parse(originLon);
-                double dLat = double.Parse(destLat);
-                double dLon = double.Parse(destLon);
+                Console.WriteLine($"PARAMS: {originLat}, {originLon}, {destLat}, {destLon}, {originCity}, {destCity}");
+
 
                 Console.WriteLine($"[RoutingService] Origine: {originCity} ({oLat}, {oLon})");
                 Console.WriteLine($"[RoutingService] Destination: {destCity} ({dLat}, {dLon})");
@@ -226,8 +244,8 @@ namespace RoutingServer
 
             // 5. Comparaison avec marche directe
             var walkDirect = ParseORSJson(proxy.CallORS("foot-walking",
-                $"{oLon},{oLat}",
-                $"{dLon},{dLat}"), "walk");
+      $"{oLon.ToString(CultureInfo.InvariantCulture)},{oLat.ToString(CultureInfo.InvariantCulture)}",
+      $"{dLon.ToString(CultureInfo.InvariantCulture)},{dLat.ToString(CultureInfo.InvariantCulture)}"), "walk");
 
             double totalBike = walk1.TotalDuration + bike.TotalDuration + walk2.TotalDuration;
             double walkTotalTime = walkDirect.TotalDuration;
