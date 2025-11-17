@@ -1,9 +1,10 @@
-﻿using Newtonsoft.Json;
+﻿using Microsoft.Extensions.Configuration;
+using Newtonsoft.Json;
+using ProxyCacheServer.ProxyModels;
+using ProxyCacheService.ProxyModels;
 using SharedModels;
 using System;
 using System.Collections.Generic;
-using System.Configuration;
-using System.Linq;
 using System.Net.Http;
 using System.ServiceModel;
 using System.Text;
@@ -13,64 +14,58 @@ namespace ProxyCacheService
     [ServiceBehavior(InstanceContextMode = InstanceContextMode.Single)]
     public class ProxyCacheServiceImpl : IProxyCacheService
     {
-
-        private string _jcdecauxApiKey ;
         private readonly HttpClient _httpClient;
-        private readonly string _openRouteApiKey;
-        private readonly GenericProxyCache<OpenRouteResulte> _routeCache;
-        private readonly GenericProxyCache<List<BikeStation>> _stationsCache;
 
+        private readonly GenericProxyCache<Contracts> _contractsCache;
+        private readonly GenericProxyCache<Stations> _stationsCache;
+        private readonly GenericProxyCache<OpenRouteResult> _routeCache;
 
-        public ProxyCacheServiceImpl()
+        private readonly string _JCDapiKey;
+        private readonly string _ORSapiKey;
+
+        public ProxyCacheServiceImpl(IConfiguration c)
         {
             _httpClient = new HttpClient();
-            _routeCache = new GenericProxyCache<OpenRouteResulte>();
-            _stationsCache = new GenericProxyCache<List<BikeStation>>();
-            
-            _openRouteApiKey = ConfigurationManager.AppSettings["OpenRouteApiKey"] 
-                ?? throw new InvalidOperationException("Clé OpenRouteService manquante");
-            
-            _jcdecauxApiKey = ConfigurationManager.AppSettings["JCDecauxApiKey"]
-                ?? throw new InvalidOperationException("Clé JCDecaux manquante");
+            _JCDapiKey = c["JCDApiKey"];
+            _ORSapiKey = c["ORSApiKey"];
+
+            Contracts.ApiKey = _JCDapiKey;
+            Stations.ApiKey = _JCDapiKey;
+            OpenRouteResult.ApiKey = _ORSapiKey;
+
+            _routeCache = new GenericProxyCache<OpenRouteResult>();
+            _contractsCache = new GenericProxyCache<Contracts>();
+            _stationsCache = new GenericProxyCache<Stations>();
         }
 
-        public string ComputeRoute(double startLat, double startLon, double endLat, double endLon, bool isBike)
+        public string ComputeRoute(double startLatitude, double startLongitude, double endLatitude, double endLongitude, bool isBike)
         {
             string profile = isBike ? "cycling-regular" : "foot-walking";
-            string cacheKey = $"route_{profile}_{startLat:F4}_{startLon:F4}_{endLat:F4}_{endLon:F4}";
-
-
-
-
+            string cacheKey = $"route_{profile}_{startLatitude:F4}_{startLongitude:F4}_{endLatitude:F4}_{endLongitude:F4}";
 
             Console.WriteLine($"[ProxyCache] → ComputeRoute({profile})");
-            Console.WriteLine($"   Origine: ({startLat}, {startLon})");
-            Console.WriteLine($"   Destination: ({endLat}, {endLon})");
-
-
-
+            Console.WriteLine($"Origine: ({startLatitude}, {startLongitude})");
+            Console.WriteLine($"Destination: ({endLatitude} ,  {endLongitude})");
 
             try
             {
-                // ✅ Get retourne directement ProxyCacheRouteString
                 var cachedObj = _routeCache.Get(cacheKey, 600);
-                
-                // ✅ cachedObj.Value est déjà le string JSON
+
                 if (!string.IsNullOrEmpty(cachedObj?.Value))
                 {
-                    Console.WriteLine("   [Cache HIT]");
-                    return cachedObj.Value; // ✅ Un seul .Value
+                    Console.WriteLine("[Cache HIT]");
+                    return cachedObj.Value;
                 }
 
-                Console.WriteLine("   [Cache MISS] Appel API OpenRouteService...");
+                Console.WriteLine("[Cache MISS] Appel API OpenRouteService...");
 
                 string url = $"https://api.openrouteservice.org/v2/directions/{profile}";
                 var payload = new
                 {
                     coordinates = new double[][]
                     {
-                        new double[] { startLon, startLat },
-                        new double[] { endLon, endLat }
+                        new double[] { startLongitude, startLatitude },
+                        new double[] { endLongitude, endLatitude }
                     },
                     instructions = true,
                     language = "fr",
@@ -84,7 +79,7 @@ namespace ProxyCacheService
                 );
 
                 _httpClient.DefaultRequestHeaders.Clear();
-                _httpClient.DefaultRequestHeaders.Add("Authorization", _openRouteApiKey);
+                _httpClient.DefaultRequestHeaders.Add("Authorization", _ORSapiKey);
 
                 var response = _httpClient.PostAsync(url, content).Result;
 
@@ -95,115 +90,109 @@ namespace ProxyCacheService
                 }
 
                 string json = response.Content.ReadAsStringAsync().Result;
-
                 dynamic routeData = JsonConvert.DeserializeObject(json);
+
                 double distance = routeData.routes[0].summary.distance;
                 double duration = routeData.routes[0].summary.duration;
 
-                Console.WriteLine($"   ✅ Route calculée: {distance}m en {duration / 60:F1}min");
+                Console.WriteLine($"Route calculée: {distance}m en {duration / 60:F1}min");
 
-                // ✅ Stocker dans le cache : cachedObj est déjà l'objet ProxyCacheRouteString
-                cachedObj.Value = json; // ✅ Un seul .Value
-                Console.WriteLine($"   💾 Route mise en cache");
+                cachedObj.Value = json;
+                Console.WriteLine($"Route mise en cache");
 
                 return json;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"   ❌ ERREUR: {ex.Message}");
+                Console.WriteLine($"ERREUR: {ex.Message}");
                 throw new FaultException($"Erreur calcul itinéraire: {ex.Message}");
             }
         }
 
-
-
-
-
-
-        public void Dispose()
+        public List<BikeContract> GetAvailableContracts()
         {
-            _httpClient?.Dispose();
-            Console.WriteLine("[ProxyCache] Service disposé.");
+            Console.WriteLine("[INFO] Récupération des contrats via cache");
+
+            string cacheKey = "jcdecaux_contracts";
+            var obj = _contractsCache.Get(cacheKey, 86400);
+
+            if (obj.Items.Count == 0)
+            {
+                Console.WriteLine("[CACHE MISS] Chargement depuis JCDecaux");
+
+                obj = new Contracts(_httpClient);
+
+                _contractsCache.Set(cacheKey, obj, 86400);
+            }
+            return obj.Items;
         }
 
-
-
-       
-        // on contacte ici jcdcaux
-        public List<BikeStation> GetStations(string contractName)
+        public List<BikeStation> GetStationsByContract(string contractName)
         {
-            Console.WriteLine($"\n[ProxyCache] → GetStations({contractName})");
+            Console.WriteLine($"[INFO] Récupération des stations pour le contrat '{contractName}' via cache");
+            var obj = _stationsCache.Get(contractName, 600);
 
+            if (obj.BikeStations.Count == 0)
+            {
+                Console.WriteLine("[CACHE MISS] Chargement depuis JCDecaux");
+                obj = new Stations(_httpClient, contractName);
+                _stationsCache.Set(contractName, obj, 600);
+            }
+            return obj.BikeStations;
+        }
+
+        public string CallORS(string profile, string start, string end)
+        {
             try
             {
-                // 🔑 Clé de cache unique par contrat
-                string cacheKey = $"stations_{contractName}";
-
-                // 🗃️ Vérifier le cache (5 minutes)
-                var cached = _stationsCache.Get(cacheKey, 300);
-
-                // ✅ Vérifier si la liste contient des données
-                if (cached != null && cached.Count > 0)
+                string cacheKey = $"ORS_{profile}_{start}_{end}";
+                var cached = _routeCache.Get(cacheKey, 600);
+                if (!string.IsNullOrEmpty(cached?.Value))
                 {
-                    Console.WriteLine($"   [Cache HIT] {cached.Count} stations");
-                    
-                    // 📊 Stats du cache
-                    int cachedOpenStations = cached.Count(s => s.status == "OPEN");
-                    int cachedTotalBikes = cached.Sum(s => s.available_bikes);
-                    Console.WriteLine($"   📊 Ouvertes: {cachedOpenStations}, Vélos: {cachedTotalBikes}");
-                    
-                    return cached;
+                    Console.WriteLine("[ProxyCache] ORS Cache HIT");
+                    return cached.Value;
+                }
+                Console.WriteLine("[ProxyCache] ORS Cache MISS → Appel API ORS");
+
+                string url = $"https://api.openrouteservice.org/v2/directions/{profile}";
+
+                var payload = new
+                {
+                    coordinates = new double[][]
+                    {
+                new double[] { double.Parse(start.Split(',')[0]), double.Parse(start.Split(',')[1]) },
+                new double[] { double.Parse(end.Split(',')[0]), double.Parse(end.Split(',')[1]) }
+                    },
+                    instructions = true,
+                    language = "fr",
+                    instructions_format = "text"
+                };
+
+                var jsonBody = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+
+                _httpClient.DefaultRequestHeaders.Clear();
+                _httpClient.DefaultRequestHeaders.Add("Authorization", _ORSapiKey);
+
+                var response = _httpClient.PostAsync(url, content).Result;
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    string error = response.Content.ReadAsStringAsync().Result;
+                    throw new Exception($"ORS error {response.StatusCode}: {error}");
                 }
 
-                // 🌐 Cache MISS → Appel API
-                Console.WriteLine("   [Cache MISS] Appel API JCDecaux...");
-        
-                string url = $"https://api.jcdecaux.com/vls/v1/stations?contract={contractName}&apiKey={_jcdecauxApiKey}";
-                Console.WriteLine($"   🌐 URL: {url}");
+                string resultJson = response.Content.ReadAsStringAsync().Result;
+                cached.Value = resultJson;
+                Console.WriteLine("[ProxyCache] ORS response cached.");
 
-                // 📥 Appel HTTP
-                var response = _httpClient.GetStringAsync(url).Result;
-
-                // 🧩 Parser le JSON
-                var stations = JsonConvert.DeserializeObject<List<BikeStation>>(response);
-
-                Console.WriteLine($"   ✅ {stations.Count} stations récupérées");
-
-                // 📊 Statistiques
-                int openStations = stations.Count(s => s.status == "OPEN");
-                int totalBikes = stations.Sum(s => s.available_bikes);
-                int totalStands = stations.Sum(s => s.bike_stands);
-
-                Console.WriteLine($"   📊 Statistiques:");
-                Console.WriteLine($"      Stations ouvertes: {openStations}/{stations.Count}");
-                Console.WriteLine($"      Vélos disponibles: {totalBikes}");
-                Console.WriteLine($"      Places totales: {totalStands}");
-
-                // ✅ STOCKER DANS LE CACHE (c'était manquant !)
-                cached.Clear();
-                cached.AddRange(stations);
-                Console.WriteLine($"   💾 Stations mises en cache pour 5 minutes");
-
-                return stations;
-            }
-            catch (HttpRequestException httpEx)
-            {
-                Console.WriteLine($"   ❌ ERREUR HTTP: {httpEx.Message}");
-
-                if (httpEx.Message.Contains("404"))
-                {
-                    Console.WriteLine($"   ⚠️ Contrat '{contractName}' introuvable");
-                    Console.WriteLine($"   💡 Contrats valides: Paris, Lyon, Marseille, Toulouse, Nantes, Strasbourg...");
-                }
-
-                return new List<BikeStation>();
+                return resultJson;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"   ❌ ERREUR: {ex.Message}");
-                return new List<BikeStation>();
+                Console.WriteLine($"ERREUR CallORS: {ex.Message}");
+                throw new FaultException($"Erreur CallORS: {ex.Message}");
             }
         }
-
     }
 }

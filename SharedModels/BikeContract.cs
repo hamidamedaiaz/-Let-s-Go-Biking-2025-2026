@@ -1,20 +1,20 @@
-﻿using System.Runtime.Serialization;
+﻿using Newtonsoft.Json;
+using System.Collections.Generic;
 
 namespace SharedModels
 {
-        [DataContract]
-        public class BikeContract
-        {
-            [DataMember]
-            public string name { get; set; } = "";
+    public class BikeContract
+    {
+        [JsonProperty("name")]
+        public string Name { get; set; } = "";
 
-            [DataMember]
-            public string commercial_name { get; set; } = "";
+        [JsonProperty("commercial_name")]
+        public string CommercialName { get; set; } = "";
 
-            [DataMember]
-            public string country_code { get; set; } = "";
+        [JsonProperty("country_code")]
+        public string Country { get; set; } = "";
 
-            [DataMember]
-            public string[] cities { get; set; } = new string[0];
-        }
+        [JsonProperty("cities")]
+        public List<string> Cities { get; set; } = new List<string>();
+    }
 }

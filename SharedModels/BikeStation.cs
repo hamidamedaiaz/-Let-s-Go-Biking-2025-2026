@@ -1,26 +1,69 @@
-﻿
-using System.Runtime.Serialization;
+﻿using Newtonsoft.Json;
+using System;
 
 namespace SharedModels
 {
-    [DataContract]
     public class BikeStation
     {
-        [DataMember]
-        public int number { get; set; }
-        [DataMember]
-        public string name { get; set; } = "";
-        [DataMember]
-        public string address { get; set; } = "";
-        [DataMember]
-        public GpsPosition position { get; set; }
-        [DataMember]
-        public int available_bikes { get; set; }
-        [DataMember]
-        public int bike_stands { get; set; }
-        [DataMember]
-        public int available_bike_stands { get; set; }
-        [DataMember]
-        public string status { get; set; } = "";
+        [JsonProperty("number")]
+        public int Number { get; set; }
+
+        [JsonProperty("contractName")]
+        public string ContractName { get; set; } = "";
+
+        [JsonProperty("name")]
+        public string Name { get; set; } = "";
+
+        [JsonProperty("address")]
+        public string Address { get; set; } = "";
+
+        [JsonProperty("position")]
+        public Position Position { get; set; }
+
+        [JsonProperty("banking")]
+        public bool Banking { get; set; }
+
+        [JsonProperty("bonus")]
+        public bool Bonus { get; set; }
+
+        [JsonProperty("status")]
+        public string Status { get; set; } = "";
+
+        [JsonProperty("lastUpdate")]
+        public DateTime LastUpdate { get; set; }
+
+        [JsonProperty("connected")]
+        public bool Connected { get; set; }
+
+        [JsonProperty("overflow")]
+        public bool Overflow { get; set; }
+
+        [JsonProperty("shape")]
+        public object Shape { get; set; }
+
+        [JsonProperty("totalStands")]
+        public Stands TotalStands { get; set; }
+
+        [JsonProperty("mainStands")]
+        public Stands MainStands { get; set; }
+
+        [JsonProperty("overflowStands")]
+        public Stands OverflowStands { get; set; }
+    }
+    public class Stands
+    {
+        [JsonProperty("availabilities")]
+        public Availabilities Availabilities { get; set; }
+
+        [JsonProperty("capacity")]
+        public int Capacity { get; set; }
+    }
+    public class Position
+    {
+        [JsonProperty("latitude")]
+        public double Latitude { get; set; }
+
+        [JsonProperty("longitude")]
+        public double Longitude { get; set; }
     }
 }

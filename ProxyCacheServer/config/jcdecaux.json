@@ -1,4 +1,5 @@
 {
-  "ApiKey": "32e76f776d7d87c60aa9c7f3c8a2700d886b0909",
-  "BaseUrl": "https://api.jcdecaux.com/vls/v3"
+    "JCDApiKey": "32e76f776d7d87c60aa9c7f3c8a2700d886b0909",
+    "ORSApiKey": "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImZmNWU2NjllZDgwMTQ2YWFiZmJiM2NlODJlZjA1NGMyIiwiaCI6Im11cm11cjY0In0=",
+    "BaseUrl": "https://api.jcdecaux.com/vls/v3"
 }
