@@ -60,29 +60,13 @@ namespace ProxyCacheService
 
                 Console.WriteLine("[Cache MISS] Appel API OpenRouteService...");
 
-                string url = $"https://api.openrouteservice.org/v2/directions/{profile}";
-                var payload = new
-                {
-                    coordinates = new double[][]
-                    {
-                        new double[] { startLongitude, startLatitude },
-                        new double[] { endLongitude, endLatitude }
-                    },
-                    instructions = true,
-                    language = "fr",
-                    instructions_format = "text"
-                };
+                // Utiliser la méthode GET avec api_key en paramètre
+                string url = $"https://api.openrouteservice.org/v2/directions/{profile}/json?" +
+                    $"api_key={_ORSapiKey}&" +
+                    $"start={startLongitude.ToString(CultureInfo.InvariantCulture)},{startLatitude.ToString(CultureInfo.InvariantCulture)}&" +
+                    $"end={endLongitude.ToString(CultureInfo.InvariantCulture)},{endLatitude.ToString(CultureInfo.InvariantCulture)}";
 
-                var content = new StringContent(
-                    JsonConvert.SerializeObject(payload),
-                    Encoding.UTF8,
-                    "application/json"
-                );
-
-                _httpClient.DefaultRequestHeaders.Clear();
-                _httpClient.DefaultRequestHeaders.Add("Authorization", _ORSapiKey);
-
-                var response = _httpClient.PostAsync(url, content).Result;
+                var response = _httpClient.GetAsync(url).Result;
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -91,15 +75,10 @@ namespace ProxyCacheService
                 }
 
                 string json = response.Content.ReadAsStringAsync().Result;
-                dynamic routeData = JsonConvert.DeserializeObject(json);
 
-                double distance = routeData.routes[0].summary.distance;
-                double duration = routeData.routes[0].summary.duration;
-
-                Console.WriteLine($"Route calculée: {distance}m en {duration / 60:F1}min");
+                Console.WriteLine($"Route calculée et mise en cache");
 
                 cachedObj.Value = json;
-                Console.WriteLine($"Route mise en cache");
 
                 return json;
             }
@@ -155,34 +134,37 @@ namespace ProxyCacheService
                 }
                 Console.WriteLine("[ProxyCache] ORS Cache MISS → Appel API ORS");
 
-                string url = $"https://api.openrouteservice.org/v2/directions/{profile}";
+                // Parser les coordonnées avec InvariantCulture pour gérer les points décimaux
+                var startParts = start.Split(',');
+                var endParts = end.Split(',');
+                
+                double startLon = double.Parse(startParts[0], CultureInfo.InvariantCulture);
+                double startLat = double.Parse(startParts[1], CultureInfo.InvariantCulture);
+                double endLon = double.Parse(endParts[0], CultureInfo.InvariantCulture);
+                double endLat = double.Parse(endParts[1], CultureInfo.InvariantCulture);
 
-                // ✅ CORRECTION: Parse avec InvariantCulture
-                var startCoords = start.Split(',');
-                var endCoords = end.Split(',');
+                Console.WriteLine($"[ProxyCache] Coordonnées parsées: ({startLon}, {startLat}) → ({endLon}, {endLat})");
+
+                // Utiliser la méthode POST avec JSON payload et Authorization header
+                string url = $"https://api.openrouteservice.org/v2/directions/{profile}/geojson";
 
                 var payload = new
                 {
                     coordinates = new double[][]
                     {
-                new double[] {
-                    double.Parse(startCoords[0], CultureInfo.InvariantCulture),  // ← AJOUTER InvariantCulture
-                    double.Parse(startCoords[1], CultureInfo.InvariantCulture)   // ← AJOUTER InvariantCulture
-                },
-                new double[] {
-                    double.Parse(endCoords[0], CultureInfo.InvariantCulture),    // ← AJOUTER InvariantCulture
-                    double.Parse(endCoords[1], CultureInfo.InvariantCulture)     // ← AJOUTER InvariantCulture
-                }
+                        new double[] { startLon, startLat },
+                        new double[] { endLon, endLat }
                     },
                     instructions = true,
                     language = "fr",
                     instructions_format = "text"
                 };
+
                 var jsonBody = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
 
                 _httpClient.DefaultRequestHeaders.Clear();
-                _httpClient.DefaultRequestHeaders.Add("Authorization", _ORSapiKey);
+                _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", _ORSapiKey);
 
                 var response = _httpClient.PostAsync(url, content).Result;
 

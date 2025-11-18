@@ -10,7 +10,7 @@ namespace RoutingServer
         [WebGet(
             UriTemplate = "itinerary?originLat={originLat}&originLon={originLon}&originCity={originCity}&destLat={destLat}&destLon={destLon}&destCity={destCity}",
             ResponseFormat = WebMessageFormat.Json,
-            BodyStyle = WebMessageBodyStyle.Wrapped
+            BodyStyle = WebMessageBodyStyle.Bare
         )]
         ItineraryResult GetItinerary(
             string originLat,
@@ -20,6 +20,5 @@ namespace RoutingServer
             string destLon,
             string destCity
         );
-
     }
 }

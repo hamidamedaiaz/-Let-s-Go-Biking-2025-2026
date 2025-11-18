@@ -17,6 +17,9 @@ namespace ProxyCacheService
             public double MaxLat { get; set; }
             public double MinLon { get; set; }
             public double MaxLon { get; set; }
+            
+            // Calculer la surface du bbox (plus petit = plus spécifique)
+            public double Area => (MaxLat - MinLat) * (MaxLon - MinLon);
         }
 
         public static Task LoadContractsAsync(IProxyCacheService proxy)
@@ -56,18 +59,21 @@ namespace ProxyCacheService
         {
             await LoadContractsAsync(proxy);
 
-            // 1️⃣ Vérification bounding box (rapide)
-            foreach (var c in _contractsCache.Values)
+            // 1️⃣ Trouver tous les contrats qui contiennent la coordonnée
+            var matchingContracts = _contractsCache.Values
+                .Where(c => lat >= c.MinLat && lat <= c.MaxLat &&
+                           lon >= c.MinLon && lon <= c.MaxLon)
+                .ToList();
+
+            if (matchingContracts.Any())
             {
-                if (lat >= c.MinLat && lat <= c.MaxLat &&
-                    lon >= c.MinLon && lon <= c.MaxLon)
-                {
-                    Console.WriteLine($"[ContractResolver] Coordonnée ({lat:F4}, {lon:F4}) dans bbox de '{c.Name}'");
-                    return c.Name;
-                }
+                // Prioriser le contrat le plus petit (plus spécifique)
+                var bestMatch = matchingContracts.OrderBy(c => c.Area).First();
+                Console.WriteLine($"[ContractResolver] Coordonnée ({lat:F4}, {lon:F4}) dans '{bestMatch.Name}' (bbox le plus petit parmi {matchingContracts.Count} candidats)");
+                return bestMatch.Name;
             }
 
-            // 2️⃣ Contrat le plus proche
+            // 2️⃣ Contrat le plus proche si aucun bbox ne contient la coordonnée
             Console.WriteLine($"[ContractResolver] Coordonnée hors bbox. Recherche du contrat le plus proche...");
             return FindNearestContract(lat, lon);
         }
