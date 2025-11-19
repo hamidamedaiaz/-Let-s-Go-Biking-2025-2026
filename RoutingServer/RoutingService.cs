@@ -15,10 +15,12 @@ namespace RoutingServer
             double lat1, double lon1,
             double lat2, double lon2)
         {
+            Console.WriteLine(" ici  il  ma appel "); 
             string orsJson = proxy.CallORS(
                 "foot-walking",
                 $"{lon1.ToString(CultureInfo.InvariantCulture)},{lat1.ToString(CultureInfo.InvariantCulture)}",
                 $"{lon2.ToString(CultureInfo.InvariantCulture)},{lat2.ToString(CultureInfo.InvariantCulture)}");
+            Console.WriteLine("je retourne  ca alors ");
             return ParseORSJson(orsJson, "walk");
         }
         private ItineraryData GetBikingSegment(
@@ -132,28 +134,24 @@ namespace RoutingServer
                 Console.WriteLine($"[RoutingService] Destination: {destCity} ({dLat}, {dLon})");
 
                 string contract;
-        
-                if (originCity.ToLower() != destCity.ToLower())
+
+                if (!originCity.ToLower().Equals(destCity.ToLower()))
                 {
-                    Console.WriteLine("[RoutingService] Villes différentes détectées");
+                    Console.WriteLine("HI je suis la mtn  ");
 
-                    string originContract = ContractResolver.ResolveContractForCoordinate(proxy, oLat, oLon).Result;
-                    string destContract = ContractResolver.ResolveContractForCoordinate(proxy, dLat, dLon).Result;
+                    // On calcule simplement la marche directe
+                    var walkOnly = GetWalkingSegment(
+                        proxy,
+                        oLat, oLon,
+                        dLat, dLon
+                    );
 
-                    Console.WriteLine($"[RoutingService] Contrat origine: {originContract}");
-                    Console.WriteLine($"[RoutingService] Contrat destination: {destContract}");
-
-                    if (originContract != destContract)
+                    return new ItineraryResult
                     {
-                        return new ItineraryResult
-                        {
-                            Success = false,
-                            Message = $"Origin ({originCity}/{originContract}) and destination ({destCity}/{destContract}) use different bike-sharing contracts.",
-                            Data = null
-                        };
-                    }
-                    Console.WriteLine($"[RoutingService] Même contrat '{originContract}' pour les deux villes");
-                    contract = originContract;
+                        Success = true,
+                        Message = "walk",
+                        Data = walkOnly
+                    };
                 }
                 else
                 {
