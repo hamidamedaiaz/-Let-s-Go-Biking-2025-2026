@@ -15,12 +15,10 @@ namespace RoutingServer
             double lat1, double lon1,
             double lat2, double lon2)
         {
-            Console.WriteLine(" ici  il  ma appel "); 
             string orsJson = proxy.CallORS(
                 "foot-walking",
                 $"{lon1.ToString(CultureInfo.InvariantCulture)},{lat1.ToString(CultureInfo.InvariantCulture)}",
                 $"{lon2.ToString(CultureInfo.InvariantCulture)},{lat2.ToString(CultureInfo.InvariantCulture)}");
-            Console.WriteLine("je retourne  ca alors ");
             return ParseORSJson(orsJson, "walk");
         }
         private ItineraryData GetBikingSegment(
@@ -31,16 +29,14 @@ namespace RoutingServer
             string orsJson = proxy.CallORS(
                 "cycling-regular",
                 $"{lon1.ToString(CultureInfo.InvariantCulture)},{lat1.ToString(CultureInfo.InvariantCulture)}",
-                $"{lon2.ToString(CultureInfo.InvariantCulture)},{lat2.ToString(CultureInfo.InvariantCulture)}");
-
+               $"{lon2.ToString(CultureInfo.InvariantCulture)},{lat2.ToString(CultureInfo.InvariantCulture)}");
             return ParseORSJson(orsJson, "bike");
         }
 
         private ItineraryData ParseORSJson(string orsJson, string stepType)
         {
-            var ors = Newtonsoft.Json.JsonConvert.DeserializeObject<ORSresulte>(orsJson);
+            var ors = Newtonsoft.Json.JsonConvert.DeserializeObject<ORSResult>(orsJson);
 
-            // Vérifier que ORS a bien retourné des features
             if (ors?.Features == null || ors.Features.Count == 0)
             {
                 Console.WriteLine("[RoutingService ERROR] No features in ORS response");
@@ -49,7 +45,6 @@ namespace RoutingServer
 
             var feature = ors.Features[0];
 
-            // Vérifier les segments
             if (feature.Properties.Segments == null || feature.Properties.Segments.Count == 0)
             {
                 Console.WriteLine("[RoutingService ERROR] No segments in feature");
@@ -57,14 +52,9 @@ namespace RoutingServer
             }
 
             var segment = feature.Properties.Segments[0];
-
-            // Résumé
             var summary = feature.Properties.Summary;
-
-            // Steps bruts ORS
             var rawSteps = segment.Steps;
 
-            // Convertir les steps dans ton modèle
             var convertedSteps = rawSteps
                 .Select(s => new Step
                 {
@@ -75,7 +65,6 @@ namespace RoutingServer
                 })
                 .ToArray();
 
-            // Géométrie : coordonnées GeoJSON déjà prêtes
             double[][] geometryArray = Array.Empty<double[]>();
 
             if (feature.Geometry?.Coordinates != null && feature.Geometry.Coordinates.Count > 0)
@@ -93,7 +82,7 @@ namespace RoutingServer
                 Geometry = new Geometry { Coordinates = geometryArray }
             };
         }
-    
+
         public ItineraryResult GetItinerary(
             string originLat,
             string originLon,
@@ -102,7 +91,6 @@ namespace RoutingServer
             string destLon,
             string destCity)
         {
-            // Configurer le binding client avec des quotas augmentés
             var binding = new BasicHttpBinding
             {
                 MaxReceivedMessageSize = 2147483647,
@@ -133,18 +121,38 @@ namespace RoutingServer
                 Console.WriteLine($"[RoutingService] Origine: {originCity} ({oLat}, {oLon})");
                 Console.WriteLine($"[RoutingService] Destination: {destCity} ({dLat}, {dLon})");
 
-                string contract;
+                string originContract = null;
+                string destContract = null;
 
-                if (!originCity.ToLower().Equals(destCity.ToLower()))
+                try
                 {
-                    Console.WriteLine("HI je suis la mtn  ");
+                    originContract = FindContractForCity(proxy, originCity);
+                    Console.WriteLine($"[RoutingService] Contrat origine: {originContract}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[RoutingService] Pas de contrat pour '{originCity}', recherche par coordonnées...");
+                    originContract = ContractResolver.ResolveContractForCoordinate(proxy, oLat, oLon).Result;
+                    Console.WriteLine($"[RoutingService] Contrat origine (fallback): {originContract}");
+                }
 
-                    // On calcule simplement la marche directe
-                    var walkOnly = GetWalkingSegment(
-                        proxy,
-                        oLat, oLon,
-                        dLat, dLon
-                    );
+                try
+                {
+                    destContract = FindContractForCity(proxy, destCity);
+                    Console.WriteLine($"[RoutingService] Contrat destination: {destContract}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[RoutingService] Pas de contrat pour '{destCity}', recherche par coordonnées...");
+                    destContract = ContractResolver.ResolveContractForCoordinate(proxy, dLat, dLon).Result;
+                    Console.WriteLine($"[RoutingService] Contrat destination (fallback): {destContract}");
+                }
+
+                if (!originContract.Equals(destContract, StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine($"[RoutingService] ❌ Contrats différents ({originContract} ≠ {destContract}) → Marche directe uniquement");
+
+                    var walkOnly = GetWalkingSegment(proxy, oLat, oLon, dLat, dLon);
 
                     return new ItineraryResult
                     {
@@ -155,27 +163,13 @@ namespace RoutingServer
                 }
                 else
                 {
-                    // Même ville
-                    try
-                    {
-                        contract = FindContractForCity(proxy, originCity);
-                        Console.WriteLine($"[RoutingService] Contrat trouvé: {contract}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[RoutingService] Ville '{originCity}' sans contrat direct. Recherche du contrat le plus proche...");
-                        contract = ContractResolver.ResolveContractForCoordinate(proxy, oLat, oLon).Result;
-                        Console.WriteLine($"[RoutingService] Contrat de fallback: {contract}");
-                        Console.WriteLine("[RoutingService] Exception: " + ex.Message);
-                    }
+
+                    var stations = proxy.GetStationsByContract(originContract);
+                    return ComputeItinerary(proxy, oLat, oLon, dLat, dLon, stations);
                 }
-        
-                var stations = proxy.GetStationsByContract(contract);
-                return ComputeItinerary(proxy, oLat, oLon, dLat, dLon, stations);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RoutingService ERROR] {ex.Message}");
 
                 try { ((IClientChannel)proxy).Abort(); } catch { }
 
@@ -221,8 +215,10 @@ namespace RoutingServer
             {
                 return new ItineraryResult
                 {
-                    Success = false,
-                    Message = "No valid stations nearby with bikes/stands available."
+                    Success = true,
+                    Message = "walk",
+                    Data  = GetWalkingSegment(proxy, oLat, oLon, dLat, dLon)
+
                 };
             }
 
@@ -263,7 +259,6 @@ namespace RoutingServer
 
             var allSteps = walk1.Steps.Concat(bike.Steps).Concat(walk2.Steps).ToArray();
 
-            // Combiner les géométries de walk1, bike et walk2
             var combinedCoordinates = walk1.Geometry.Coordinates
                 .Concat(bike.Geometry.Coordinates)
                 .Concat(walk2.Geometry.Coordinates)
@@ -287,7 +282,7 @@ namespace RoutingServer
 
         private double Haversine(double lat1, double lon1, double lat2, double lon2)
         {
-            double R = 6371000; // meters
+            double R = 6371000;
             double dLat = (lat2 - lat1) * Math.PI / 180;
             double dLon = (lon2 - lon1) * Math.PI / 180;
 

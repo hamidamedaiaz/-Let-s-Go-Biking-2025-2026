@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace SharedModels
 {
-    public class ORSresulte
+    public class ORSResult
     {
         [JsonProperty("features")]
         public List<ORSFeature> Features { get; set; }

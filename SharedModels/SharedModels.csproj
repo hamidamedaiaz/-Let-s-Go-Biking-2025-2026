@@ -48,7 +48,7 @@
     <Compile Include="Availabilities.cs" />
     <Compile Include="BikeContract.cs" />
     <Compile Include="BikeStation.cs" />
-    <Compile Include="ORSresulte.cs" />
+    <Compile Include="ORSResult.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
