@@ -27,4 +27,38 @@
       </xs:sequence>
     </xs:complexType>
   </xs:element>
+  <xs:element name="ComputeRoute">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element minOccurs="0" name="startLatitude" type="xs:double" />
+        <xs:element minOccurs="0" name="startLongitude" type="xs:double" />
+        <xs:element minOccurs="0" name="endLatitude" type="xs:double" />
+        <xs:element minOccurs="0" name="endLongitude" type="xs:double" />
+        <xs:element minOccurs="0" name="isBike" type="xs:boolean" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="ComputeRouteResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element minOccurs="0" name="ComputeRouteResult" nillable="true" type="xs:string" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="CallORS">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element minOccurs="0" name="profile" nillable="true" type="xs:string" />
+        <xs:element minOccurs="0" name="start" nillable="true" type="xs:string" />
+        <xs:element minOccurs="0" name="end" nillable="true" type="xs:string" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="CallORSResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element minOccurs="0" name="CallORSResult" nillable="true" type="xs:string" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
 </xs:schema>

@@ -147,5 +147,21 @@ namespace ProxyCacheService
             _cache.Set(cacheItemName, value, policy);
             Console.WriteLine($"[CACHE] Item '{cacheItemName}' stocké dans le cache avec expiration: {dt}");
         }
+
+        public T GetOrAdd(string cacheItemName, double dt_seconds, Func<T> factory)
+        {
+            var cachedItem = _cache.Get(cacheItemName) as T;
+            if (cachedItem == null)
+            {
+                var newObj = factory();
+                CacheItemPolicy policy = new CacheItemPolicy
+                {
+                    AbsoluteExpiration = DateTimeOffset.UtcNow.AddSeconds(dt_seconds)
+                };
+                _cache.Set(cacheItemName, newObj, policy);
+                return newObj;
+            }
+            return cachedItem;
+        }
     }
 }

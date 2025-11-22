@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36705.20 d17.14
+VisualStudioVersion = 17.14.36705.20
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RoutingServer", "RoutingServer\RoutingServer.csproj", "{25A58265-7C4E-4194-BAFD-0A88BCF8908F}"
 EndProject
@@ -10,6 +10,8 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Frontend", "Frontend", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedModels", "SharedModels\SharedModels.csproj", "{D837BDFB-592A-4DA4-A85E-55A149BC3110}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NotificationService", "NotificationService\NotificationService.csproj", "{27180C42-3542-4B5D-B3B7-58E99237722A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -29,6 +31,10 @@ Global
 		{D837BDFB-592A-4DA4-A85E-55A149BC3110}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D837BDFB-592A-4DA4-A85E-55A149BC3110}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D837BDFB-592A-4DA4-A85E-55A149BC3110}.Release|Any CPU.Build.0 = Release|Any CPU
+		{27180C42-3542-4B5D-B3B7-58E99237722A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{27180C42-3542-4B5D-B3B7-58E99237722A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{27180C42-3542-4B5D-B3B7-58E99237722A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{27180C42-3542-4B5D-B3B7-58E99237722A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

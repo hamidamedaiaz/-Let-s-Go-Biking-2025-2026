@@ -77,7 +77,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Connected Services\ProxyCacheServiceReference\Reference.cs">
+    <Compile Include="Connected Services\ServiceReference1\Reference.cs">
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>
       <DependentUpon>Reference.svcmap</DependentUpon>
@@ -85,26 +85,25 @@
     <Compile Include="CorsEnablingBehavior.cs" />
     <Compile Include="IRoutingService.cs" />
     <Compile Include="ItineraryResult.cs" />
-
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RoutingService.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
-    <None Include="Connected Services\ProxyCacheServiceReference\ProxyCacheService.xsd">
+    <None Include="Connected Services\ServiceReference1\ProxyCacheService.xsd">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Connected Services\ProxyCacheServiceReference\ProxyCacheService1.xsd">
+    <None Include="Connected Services\ServiceReference1\ProxyCacheService1.xsd">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Connected Services\ProxyCacheServiceReference\ProxyCacheService2.xsd">
+    <None Include="Connected Services\ServiceReference1\ProxyCacheService2.xsd">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Connected Services\ProxyCacheServiceReference\ProxyCacheService3.xsd">
+    <None Include="Connected Services\ServiceReference1\ProxyCacheService3.xsd">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Connected Services\ProxyCacheServiceReference\ProxyCacheServiceImpl.wsdl" />
+    <None Include="Connected Services\ServiceReference1\ProxyCacheServiceImpl.wsdl" />
     <None Include="packages.config" />
     <None Include="Properties\DataSources\SharedModels.BikeContract.datasource" />
     <None Include="Properties\DataSources\SharedModels.BikeStation.datasource" />
@@ -135,16 +134,16 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <WCFMetadataStorage Include="Connected Services\ProxyCacheServiceReference\" />
+    <WCFMetadataStorage Include="Connected Services\ServiceReference1\" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Connected Services\ProxyCacheServiceReference\configuration91.svcinfo" />
+    <None Include="Connected Services\ServiceReference1\configuration91.svcinfo" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Connected Services\ProxyCacheServiceReference\configuration.svcinfo" />
+    <None Include="Connected Services\ServiceReference1\configuration.svcinfo" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Connected Services\ProxyCacheServiceReference\Reference.svcmap">
+    <None Include="Connected Services\ServiceReference1\Reference.svcmap">
       <Generator>WCF Proxy Generator</Generator>
       <LastGenOutput>Reference.cs</LastGenOutput>
     </None>

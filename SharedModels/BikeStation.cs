@@ -30,7 +30,7 @@ namespace SharedModels
         public string Status { get; set; } = "";
 
         [JsonProperty("lastUpdate")]
-        public DateTime LastUpdate { get; set; }
+        public DateTime? LastUpdate { get; set; }
 
         [JsonProperty("connected")]
         public bool Connected { get; set; }

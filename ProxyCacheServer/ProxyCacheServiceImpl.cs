@@ -37,6 +37,12 @@ namespace ProxyCacheService
             _routeCache = new GenericProxyCache<OpenRouteResult>();
             _contractsCache = new GenericProxyCache<Contracts>();
             _stationsCache = new GenericProxyCache<Stations>();
+
+            Console.WriteLine("[ProxyCache] Préchargement des contrats...");
+            _ = GetAvailableContracts();
+            
+            Console.WriteLine("[ProxyCache] Préchargement des contrats populaires...");
+            ContractResolver.LoadPopularContractsAsync(this).Wait();
         }
 
         public string ComputeRoute(double startLatitude, double startLongitude, double endLatitude, double endLongitude, bool isBike)
@@ -50,37 +56,30 @@ namespace ProxyCacheService
 
             try
             {
-                var cachedObj = _routeCache.Get(cacheKey, 600);
-
-                if (!string.IsNullOrEmpty(cachedObj?.Value))
+                var cachedObj = _routeCache.GetOrAdd(cacheKey, 600, () =>
                 {
-                    Console.WriteLine("[Cache HIT]");
-                    return cachedObj.Value;
-                }
+                    Console.WriteLine("[Cache MISS] Appel API OpenRouteService...");
 
-                Console.WriteLine("[Cache MISS] Appel API OpenRouteService...");
+                    string url = $"https://api.openrouteservice.org/v2/directions/{profile}/json?" +
+                        $"api_key={_ORSapiKey}&" +
+                        $"start={startLongitude.ToString(CultureInfo.InvariantCulture)},{startLatitude.ToString(CultureInfo.InvariantCulture)}&" +
+                        $"end={endLongitude.ToString(CultureInfo.InvariantCulture)},{endLatitude.ToString(CultureInfo.InvariantCulture)}";
 
-                // Utiliser la méthode GET avec api_key en paramètre
-                string url = $"https://api.openrouteservice.org/v2/directions/{profile}/json?" +
-                    $"api_key={_ORSapiKey}&" +
-                    $"start={startLongitude.ToString(CultureInfo.InvariantCulture)},{startLatitude.ToString(CultureInfo.InvariantCulture)}&" +
-                    $"end={endLongitude.ToString(CultureInfo.InvariantCulture)},{endLatitude.ToString(CultureInfo.InvariantCulture)}";
+                    var response = _httpClient.GetAsync(url).Result;
 
-                var response = _httpClient.GetAsync(url).Result;
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        string errorBody = response.Content.ReadAsStringAsync().Result;
+                        throw new Exception($"OpenRouteService error {response.StatusCode}: {errorBody}");
+                    }
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    string errorBody = response.Content.ReadAsStringAsync().Result;
-                    throw new Exception($"OpenRouteService error {response.StatusCode}: {errorBody}");
-                }
+                    string json = response.Content.ReadAsStringAsync().Result;
+                    Console.WriteLine($"Route calculée et mise en cache");
 
-                string json = response.Content.ReadAsStringAsync().Result;
+                    return new OpenRouteResult { Value = json };
+                });
 
-                Console.WriteLine($"Route calculée et mise en cache");
-
-                cachedObj.Value = json;
-
-                return json;
+                return cachedObj.Value;
             }
             catch (Exception ex)
             {
@@ -94,30 +93,18 @@ namespace ProxyCacheService
             Console.WriteLine("[INFO] Récupération des contrats via cache");
 
             string cacheKey = "jcdecaux_contracts";
-            var obj = _contractsCache.Get(cacheKey, 86400);
+            
+            var obj = _contractsCache.GetOrAdd(cacheKey, 86400, () => new Contracts(_httpClient));
 
-            if (obj.Items.Count == 0)
-            {
-                Console.WriteLine("[CACHE MISS] Chargement depuis JCDecaux");
-
-                obj = new Contracts(_httpClient);
-
-                _contractsCache.Set(cacheKey, obj, 86400);
-            }
             return obj.Items;
         }
 
         public List<BikeStation> GetStationsByContract(string contractName)
         {
             Console.WriteLine($"[INFO] Récupération des stations pour le contrat '{contractName}' via cache");
-            var obj = _stationsCache.Get(contractName, 600);
-
-            if (obj.BikeStations.Count == 0)
-            {
-                Console.WriteLine("[CACHE MISS] Chargement depuis JCDecaux");
-                obj = new Stations(_httpClient, contractName);
-                _stationsCache.Set(contractName, obj, 600);
-            }
+            
+            var obj = _stationsCache.GetOrAdd(contractName, 600, () => new Stations(_httpClient, contractName));
+            
             return obj.BikeStations;
         }
 
@@ -126,59 +113,56 @@ namespace ProxyCacheService
             try
             {
                 string cacheKey = $"ORS_{profile}_{start}_{end}";
-                var cached = _routeCache.Get(cacheKey, 600);
-                if (!string.IsNullOrEmpty(cached?.Value))
-                {
-                    Console.WriteLine("[ProxyCache] ORS Cache HIT");
-                    return cached.Value;
-                }
-                Console.WriteLine("[ProxyCache] ORS Cache MISS → Appel API ORS");
-
-                // Parser les coordonnées avec InvariantCulture pour gérer les points décimaux
-                var startParts = start.Split(',');
-                var endParts = end.Split(',');
                 
-                double startLon = double.Parse(startParts[0], CultureInfo.InvariantCulture);
-                double startLat = double.Parse(startParts[1], CultureInfo.InvariantCulture);
-                double endLon = double.Parse(endParts[0], CultureInfo.InvariantCulture);
-                double endLat = double.Parse(endParts[1], CultureInfo.InvariantCulture);
-
-                Console.WriteLine($"[ProxyCache] Coordonnées parsées: ({startLon}, {startLat}) → ({endLon}, {endLat})");
-
-                // Utiliser la méthode POST avec JSON payload et Authorization header
-                string url = $"https://api.openrouteservice.org/v2/directions/{profile}/geojson";
-
-                var payload = new
+                var cached = _routeCache.GetOrAdd(cacheKey, 600, () =>
                 {
-                    coordinates = new double[][]
+                    Console.WriteLine("[ProxyCache] ORS Cache MISS → Appel API ORS");
+
+                    var startParts = start.Split(',');
+                    var endParts = end.Split(',');
+                    
+                    double startLon = double.Parse(startParts[0], CultureInfo.InvariantCulture);
+                    double startLat = double.Parse(startParts[1], CultureInfo.InvariantCulture);
+                    double endLon = double.Parse(endParts[0], CultureInfo.InvariantCulture);
+                    double endLat = double.Parse(endParts[1], CultureInfo.InvariantCulture);
+
+                    Console.WriteLine($"[ProxyCache] Coordonnées parsées: ({startLon}, {startLat}) → ({endLon}, {endLat})");
+
+                    string url = $"https://api.openrouteservice.org/v2/directions/{profile}/geojson";
+
+                    var payload = new
                     {
-                        new double[] { startLon, startLat },
-                        new double[] { endLon, endLat }
-                    },
-                    instructions = true,
-                    language = "fr",
-                    instructions_format = "text"
-                };
+                        coordinates = new double[][]
+                        {
+                            new double[] { startLon, startLat },
+                            new double[] { endLon, endLat }
+                        },
+                        instructions = true,
+                        language = "fr",
+                        instructions_format = "text"
+                    };
 
-                var jsonBody = JsonConvert.SerializeObject(payload);
-                var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                    var jsonBody = JsonConvert.SerializeObject(payload);
+                    var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
 
-                _httpClient.DefaultRequestHeaders.Clear();
-                _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", _ORSapiKey);
+                    _httpClient.DefaultRequestHeaders.Clear();
+                    _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", _ORSapiKey);
 
-                var response = _httpClient.PostAsync(url, content).Result;
+                    var response = _httpClient.PostAsync(url, content).Result;
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    string error = response.Content.ReadAsStringAsync().Result;
-                    throw new Exception($"ORS error {response.StatusCode}: {error}");
-                }
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        string error = response.Content.ReadAsStringAsync().Result;
+                        throw new Exception($"ORS error {response.StatusCode}: {error}");
+                    }
 
-                string resultJson = response.Content.ReadAsStringAsync().Result;
-                cached.Value = resultJson;
-                Console.WriteLine("[ProxyCache] ORS response cached.");
+                    string resultJson = response.Content.ReadAsStringAsync().Result;
+                    Console.WriteLine("[ProxyCache] ORS response cached.");
 
-                return resultJson;
+                    return new OpenRouteResult { Value = resultJson };
+                });
+                
+                return cached.Value;
             }
             catch (Exception ex)
             {

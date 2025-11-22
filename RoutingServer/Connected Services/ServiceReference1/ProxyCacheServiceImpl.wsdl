@@ -20,6 +20,18 @@
   <wsdl:message name="IProxyCacheService_GetStationsByContract_OutputMessage">
     <wsdl:part name="parameters" element="tns:GetStationsByContractResponse" />
   </wsdl:message>
+  <wsdl:message name="IProxyCacheService_ComputeRoute_InputMessage">
+    <wsdl:part name="parameters" element="tns:ComputeRoute" />
+  </wsdl:message>
+  <wsdl:message name="IProxyCacheService_ComputeRoute_OutputMessage">
+    <wsdl:part name="parameters" element="tns:ComputeRouteResponse" />
+  </wsdl:message>
+  <wsdl:message name="IProxyCacheService_CallORS_InputMessage">
+    <wsdl:part name="parameters" element="tns:CallORS" />
+  </wsdl:message>
+  <wsdl:message name="IProxyCacheService_CallORS_OutputMessage">
+    <wsdl:part name="parameters" element="tns:CallORSResponse" />
+  </wsdl:message>
   <wsdl:portType name="IProxyCacheService">
     <wsdl:operation name="GetAvailableContracts">
       <wsdl:input wsaw:Action="http://tempuri.org/IProxyCacheService/GetAvailableContracts" message="tns:IProxyCacheService_GetAvailableContracts_InputMessage" />
@@ -28,6 +40,14 @@
     <wsdl:operation name="GetStationsByContract">
       <wsdl:input wsaw:Action="http://tempuri.org/IProxyCacheService/GetStationsByContract" message="tns:IProxyCacheService_GetStationsByContract_InputMessage" />
       <wsdl:output wsaw:Action="http://tempuri.org/IProxyCacheService/GetStationsByContractResponse" message="tns:IProxyCacheService_GetStationsByContract_OutputMessage" />
+    </wsdl:operation>
+    <wsdl:operation name="ComputeRoute">
+      <wsdl:input wsaw:Action="http://tempuri.org/IProxyCacheService/ComputeRoute" message="tns:IProxyCacheService_ComputeRoute_InputMessage" />
+      <wsdl:output wsaw:Action="http://tempuri.org/IProxyCacheService/ComputeRouteResponse" message="tns:IProxyCacheService_ComputeRoute_OutputMessage" />
+    </wsdl:operation>
+    <wsdl:operation name="CallORS">
+      <wsdl:input wsaw:Action="http://tempuri.org/IProxyCacheService/CallORS" message="tns:IProxyCacheService_CallORS_InputMessage" />
+      <wsdl:output wsaw:Action="http://tempuri.org/IProxyCacheService/CallORSResponse" message="tns:IProxyCacheService_CallORS_OutputMessage" />
     </wsdl:operation>
   </wsdl:portType>
   <wsdl:binding name="BasicHttpBinding_IProxyCacheService" type="tns:IProxyCacheService">
@@ -43,6 +63,24 @@
     </wsdl:operation>
     <wsdl:operation name="GetStationsByContract">
       <soap:operation soapAction="http://tempuri.org/IProxyCacheService/GetStationsByContract" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="ComputeRoute">
+      <soap:operation soapAction="http://tempuri.org/IProxyCacheService/ComputeRoute" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="CallORS">
+      <soap:operation soapAction="http://tempuri.org/IProxyCacheService/CallORS" style="document" />
       <wsdl:input>
         <soap:body use="literal" />
       </wsdl:input>

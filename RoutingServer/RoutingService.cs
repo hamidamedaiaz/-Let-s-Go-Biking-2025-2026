@@ -1,4 +1,5 @@
 ﻿using ProxyCacheService;
+using RoutingServer.ServiceReference1;
 using SharedModels;
 using System;
 using System.Collections.Generic;
@@ -10,26 +11,27 @@ namespace RoutingServer
 {
     public class RoutingService : IRoutingService
     {
+        private readonly ProxyCacheServiceClient _proxyClient = new ProxyCacheServiceClient();
+
         private ItineraryData GetWalkingSegment(
-            IProxyCacheService proxy,
             double lat1, double lon1,
             double lat2, double lon2)
         {
-            string orsJson = proxy.CallORS(
+            string orsJson = _proxyClient.CallORS(
                 "foot-walking",
                 $"{lon1.ToString(CultureInfo.InvariantCulture)},{lat1.ToString(CultureInfo.InvariantCulture)}",
                 $"{lon2.ToString(CultureInfo.InvariantCulture)},{lat2.ToString(CultureInfo.InvariantCulture)}");
             return ParseORSJson(orsJson, "walk");
         }
+
         private ItineraryData GetBikingSegment(
-            IProxyCacheService proxy,
             double lat1, double lon1,
             double lat2, double lon2)
         {
-            string orsJson = proxy.CallORS(
+            string orsJson = _proxyClient.CallORS(
                 "cycling-regular",
                 $"{lon1.ToString(CultureInfo.InvariantCulture)},{lat1.ToString(CultureInfo.InvariantCulture)}",
-               $"{lon2.ToString(CultureInfo.InvariantCulture)},{lat2.ToString(CultureInfo.InvariantCulture)}");
+                $"{lon2.ToString(CultureInfo.InvariantCulture)},{lat2.ToString(CultureInfo.InvariantCulture)}");
             return ParseORSJson(orsJson, "bike");
         }
 
@@ -91,26 +93,6 @@ namespace RoutingServer
             string destLon,
             string destCity)
         {
-            var binding = new BasicHttpBinding
-            {
-                MaxReceivedMessageSize = 2147483647,
-                MaxBufferSize = 2147483647,
-                ReaderQuotas = new System.Xml.XmlDictionaryReaderQuotas
-                {
-                    MaxDepth = 32,
-                    MaxStringContentLength = 2147483647,
-                    MaxArrayLength = 2147483647,
-                    MaxBytesPerRead = 2147483647,
-                    MaxNameTableCharCount = 2147483647
-                }
-            };
-
-            var factory = new ChannelFactory<IProxyCacheService>(
-                    binding,
-                    new EndpointAddress("http://localhost:8080/ProxyCacheService"));
-
-            var proxy = factory.CreateChannel();
-
             try
             {
                 double oLat = double.Parse(originLat, CultureInfo.InvariantCulture);
@@ -126,33 +108,41 @@ namespace RoutingServer
 
                 try
                 {
-                    originContract = FindContractForCity(proxy, originCity);
+                    originContract = FindContractForCity(originCity);
                     Console.WriteLine($"[RoutingService] Contrat origine: {originContract}");
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Console.WriteLine($"[RoutingService] Pas de contrat pour '{originCity}', recherche par coordonnées...");
-                    originContract = ContractResolver.ResolveContractForCoordinate(proxy, oLat, oLon).Result;
-                    Console.WriteLine($"[RoutingService] Contrat origine (fallback): {originContract}");
+                    originContract = null;
+
+
+                    // Console.WriteLine($"[RoutingService] Pas de contrat pour '{originCity}', recherche par coordonnées...");
+                    // ✅ Créer un proxy IProxyCacheService pour ContractResolver
+                    //originContract = ContractResolver.ResolveContractForCoordinate(proxy, oLat, oLon).Result;
+                    //Console.WriteLine($"[RoutingService] Contrat origine (fallback): {originContract}");
                 }
 
-                try
+                try 
                 {
-                    destContract = FindContractForCity(proxy, destCity);
+                    destContract = FindContractForCity(destCity);
                     Console.WriteLine($"[RoutingService] Contrat destination: {destContract}");
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Console.WriteLine($"[RoutingService] Pas de contrat pour '{destCity}', recherche par coordonnées...");
-                    destContract = ContractResolver.ResolveContractForCoordinate(proxy, dLat, dLon).Result;
-                    Console.WriteLine($"[RoutingService] Contrat destination (fallback): {destContract}");
+
+                    destContract = null;
+                    // Console.WriteLine($"[RoutingService] Pas de contrat pour '{destCity}', recherche par coordonnées...");
+                    //destContract = ContractResolver.ResolveContractForCoordinate(proxy, dLat, dLon).Result;
+                    // Console.WriteLine($"[RoutingService] Contrat destination (fallback): {destContract}");
+
                 }
 
-                if (!originContract.Equals(destContract, StringComparison.OrdinalIgnoreCase))
+                if (!originContract.Equals(destContract, StringComparison.OrdinalIgnoreCase) || (originCity == null || destCity == null))
                 {
+                    
                     Console.WriteLine($"[RoutingService] ❌ Contrats différents ({originContract} ≠ {destContract}) → Marche directe uniquement");
 
-                    var walkOnly = GetWalkingSegment(proxy, oLat, oLon, dLat, dLon);
+                    var walkOnly = GetWalkingSegment(oLat, oLon, dLat, dLon);
 
                     return new ItineraryResult
                     {
@@ -163,15 +153,13 @@ namespace RoutingServer
                 }
                 else
                 {
-
-                    var stations = proxy.GetStationsByContract(originContract);
-                    return ComputeItinerary(proxy, oLat, oLon, dLat, dLon, stations);
+                    var stations = _proxyClient.GetStationsByContract(originContract).ToList();
+                    return ComputeItinerary(oLat, oLon, dLat, dLon, stations);
                 }
             }
             catch (Exception ex)
             {
-
-                try { ((IClientChannel)proxy).Abort(); } catch { }
+                Console.WriteLine($"[RoutingService ERROR] {ex.Message}");
 
                 return new ItineraryResult
                 {
@@ -180,25 +168,13 @@ namespace RoutingServer
                     Data = null
                 };
             }
-            finally
-            {
-                try
-                {
-                    if (((IClientChannel)proxy).State == CommunicationState.Opened)
-                    {
-                        ((IClientChannel)proxy).Close();
-                    }
-                }
-                catch
-                {
-                    ((IClientChannel)proxy).Abort();
-                }
-                try { factory.Close(); } catch { }
-            }
+            // ✅ PAS de finally qui ferme le proxy statique !
         }
 
+        // ✅ Helper pour créer un proxy temporaire pour ContractResolver
+
+
         private ItineraryResult ComputeItinerary(
-            IProxyCacheService proxy,
             double oLat,
             double oLon,
             double dLat,
@@ -217,13 +193,16 @@ namespace RoutingServer
                 {
                     Success = true,
                     Message = "walk",
-                    Data  = GetWalkingSegment(proxy, oLat, oLon, dLat, dLon)
-
+                    Data = GetWalkingSegment(oLat, oLon, dLat, dLon)
                 };
             }
 
-            var realStartWalks = ComputeRealWalkOriginToStations(proxy, oLat, oLon, startCandidates);
-            var realEndWalks = ComputeRealWalkStationsToDestination(proxy, dLat, dLon, endCandidates);
+            var walkDirect = ParseORSJson(_proxyClient.CallORS("foot-walking",
+                $"{oLon.ToString(CultureInfo.InvariantCulture)},{oLat.ToString(CultureInfo.InvariantCulture)}",
+                $"{dLon.ToString(CultureInfo.InvariantCulture)},{dLat.ToString(CultureInfo.InvariantCulture)}"), "walk");
+
+            var realStartWalks = ComputeRealWalkOriginToStations(oLat, oLon, startCandidates);
+            var realEndWalks = ComputeRealWalkStationsToDestination(dLat, dLon, endCandidates);
 
             var bestStart = realStartWalks.OrderBy(x => x.walkingDistance).First();
             var bestEnd = realEndWalks.OrderBy(x => x.walkingDistance).First();
@@ -236,15 +215,22 @@ namespace RoutingServer
             Console.WriteLine($"[RoutingService] Station de départ: {startStation.Name} ({walk1.TotalDistance:F0}m)");
             Console.WriteLine($"[RoutingService] Station d'arrivée: {endStation.Name} ({walk2.TotalDistance:F0}m)");
 
-            var bike = GetBikingSegment(proxy,
+            if ((walk1.TotalDuration + walk2.TotalDuration) > walkDirect.TotalDuration * 0.5)
+            {
+                Console.WriteLine($"[RoutingService] ⚠️ Marches trop longues, retour marche directe");
+                return new ItineraryResult
+                {
+                    Success = true,
+                    Message = "walk",
+                    Data = walkDirect
+                };
+            }
+
+            var bike = GetBikingSegment(
                 startStation.Position.Latitude,
                 startStation.Position.Longitude,
                 endStation.Position.Latitude,
                 endStation.Position.Longitude);
-
-            var walkDirect = ParseORSJson(proxy.CallORS("foot-walking",
-                $"{oLon.ToString(CultureInfo.InvariantCulture)},{oLat.ToString(CultureInfo.InvariantCulture)}",
-                $"{dLon.ToString(CultureInfo.InvariantCulture)},{dLat.ToString(CultureInfo.InvariantCulture)}"), "walk");
 
             double totalBike = walk1.TotalDuration + bike.TotalDuration + walk2.TotalDuration;
             double walkTotalTime = walkDirect.TotalDuration;
@@ -264,7 +250,7 @@ namespace RoutingServer
                 .Concat(walk2.Geometry.Coordinates)
                 .ToArray();
 
-            Console.WriteLine($"[RoutingService] Géométrie totale: {combinedCoordinates.Length} points (walk1={walk1.Geometry.Coordinates.Length}, bike={bike.Geometry.Coordinates.Length}, walk2={walk2.Geometry.Coordinates.Length})");
+            Console.WriteLine($"[RoutingService] Géométrie totale: {combinedCoordinates.Length} points");
 
             return new ItineraryResult
             {
@@ -323,62 +309,92 @@ namespace RoutingServer
                 .ToList();
         }
 
-        private string FindContractForCity(IProxyCacheService proxy, string city)
+        private string FindContractForCity(string city)
         {
-            city = city.ToLower();
-            var contracts = proxy.GetAvailableContracts();
+            string nc = Normalize(city);
 
-            foreach (var c in contracts)
+            var contracts = _proxyClient.GetAvailableContracts();
+
+            foreach (var contract in contracts)
             {
-                if (c.Cities != null && c.Cities.Any(x => x.ToLower() == city))
-                    return c.Name;
+                if (contract.Cities == null || contract.Cities.Count == 0)
+                    continue;
+
+                foreach (var city2 in contract.Cities)
+                {
+                    string nc2 = Normalize(city2);
+
+                    if (nc == nc2)
+                        return contract.Name;
+
+                    if (nc.StartsWith(nc2))
+                        return contract.Name;
+
+                    if (nc2.StartsWith(nc))
+                        return contract.Name;
+                }
             }
-            throw new Exception($"No JCDecaux contract for city {city}");
+
+            throw new Exception($"No JCDecaux contract matches the city '{city}'");
         }
+
 
         private List<(BikeStation station, double walkingDistance, ItineraryData walkData)>
             ComputeRealWalkOriginToStations(
-                IProxyCacheService proxy,
                 double oLat,
                 double oLon,
                 List<BikeStation> candidates)
         {
-            var result = new List<(BikeStation, double, ItineraryData)>();
-
-            foreach (var st in candidates)
+            var tasks = candidates.Select(st =>
             {
-                var walk = GetWalkingSegment(
-                    proxy,
-                    oLat, oLon,
-                    st.Position.Latitude,
-                    st.Position.Longitude);
+                return System.Threading.Tasks.Task.Run(() =>
+                {
+                    var walk = GetWalkingSegment(oLat, oLon, st.Position.Latitude, st.Position.Longitude);
+                    return (st, walk.TotalDistance, walk);
+                });
+            }).ToArray();
 
-                result.Add((st, walk.TotalDistance, walk));
-            }
-
-            return result;
+            var results = System.Threading.Tasks.Task.WhenAll(tasks).Result;
+            return results.ToList();
         }
 
         private List<(BikeStation station, double walkingDistance, ItineraryData walkData)>
             ComputeRealWalkStationsToDestination(
-                IProxyCacheService proxy,
                 double dLat,
                 double dLon,
                 List<BikeStation> candidates)
         {
-            var result = new List<(BikeStation, double, ItineraryData)>();
-
-            foreach (var st in candidates)
+            var tasks = candidates.Select(st =>
             {
-                var walk = GetWalkingSegment(
-                    proxy,
-                    st.Position.Latitude,
-                    st.Position.Longitude,
-                    dLat, dLon);
+                return System.Threading.Tasks.Task.Run(() =>
+                {
+                    var walk = GetWalkingSegment(st.Position.Latitude, st.Position.Longitude, dLat, dLon);
+                    return (st, walk.TotalDistance, walk);
+                });
+            }).ToArray();
 
-                result.Add((st, walk.TotalDistance, walk));
-            }
-            return result;
+            var results = System.Threading.Tasks.Task.WhenAll(tasks).Result;
+            return results.ToList();
         }
-    }
-}
+    
+    private string Normalize(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s))
+                return "";
+
+            return s
+                .ToLower()
+                .Replace(" ", "")
+                .Replace("-", "")
+                .Replace("'", "")
+                .Replace("’", "")
+                .Replace("é", "e")
+                .Replace("è", "e")
+                .Replace("ê", "e")
+                .Replace("à", "a")
+                .Replace("â", "a")
+                .Replace("ô", "o")
+                .Replace("î", "i");
+        }
+
+    } }
