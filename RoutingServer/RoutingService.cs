@@ -37,8 +37,17 @@ namespace RoutingServer
             return ParseORSJson(orsJson, "bike");
         }
 
+        // ===================================================================
+        // MÉTHODE ParseORSJson - VERSION COMPLÈTE ET CORRIGÉE
+        // ===================================================================
+        // À placer dans RoutingService.cs
+        // Remplace complètement l'ancienne version de ParseORSJson
+
         private ItineraryData ParseORSJson(string orsJson, string stepType)
         {
+            // ═══════════════════════════════════════════════════════════════
+            // ÉTAPE 1 : Désérialiser la réponse JSON d'OpenRouteService
+            // ═══════════════════════════════════════════════════════════════
             var ors = Newtonsoft.Json.JsonConvert.DeserializeObject<ORSResult>(orsJson);
 
             if (ors?.Features == null || ors.Features.Count == 0)
@@ -55,35 +64,103 @@ namespace RoutingServer
                 throw new Exception("No segments in ORS feature");
             }
 
+            // ═══════════════════════════════════════════════════════════════
+            // ÉTAPE 2 : Extraire les données de base
+            // ═══════════════════════════════════════════════════════════════
             var segment = feature.Properties.Segments[0];
             var summary = feature.Properties.Summary;
             var rawSteps = segment.Steps;
 
-            var convertedSteps = rawSteps
-                .Select(s => new Step
-                {
-                    Type = stepType,
-                    Instructions = s.Instruction,
-                    Distance = s.Distance,
-                    Duration = s.Duration
-                })
-                .ToArray();
-
-            double[][] geometryArray = Array.Empty<double[]>();
+            // ═══════════════════════════════════════════════════════════════
+            // ÉTAPE 3 : ✅ NOUVEAU - Récupérer TOUTES les coordonnées
+            // ═══════════════════════════════════════════════════════════════
+            double[][] allCoordinates = Array.Empty<double[]>();
 
             if (feature.Geometry?.Coordinates != null && feature.Geometry.Coordinates.Count > 0)
             {
-                geometryArray = feature.Geometry.Coordinates
+                allCoordinates = feature.Geometry.Coordinates
                     .Select(c => c.ToArray())
                     .ToArray();
             }
 
+            // ═══════════════════════════════════════════════════════════════
+            // ÉTAPE 4 : ✅ NOUVEAU - Extraire les coordonnées PAR STEP
+            //           en utilisant les WayPoints d'OpenRouteService
+            // ═══════════════════════════════════════════════════════════════
+            var convertedSteps = new List<Step>();
+
+            Console.WriteLine($"[ParseORS] Type: {stepType}, {rawSteps.Count} steps, {allCoordinates.Length} coords totales");
+
+            for (int i = 0; i < rawSteps.Count; i++)
+            {
+                var orsStep = rawSteps[i];
+
+                // ───────────────────────────────────────────────────────────
+                // ✅ Déterminer les indices de début et fin pour ce step
+                // ───────────────────────────────────────────────────────────
+                int startIdx = 0;
+                int endIdx = allCoordinates.Length;
+
+                // OpenRouteService fournit des WayPoints qui indiquent
+                // les indices de début et fin de chaque step dans le tableau global
+                if (orsStep.WayPoints != null && orsStep.WayPoints.Count > 0)
+                {
+                    // L'index de début est le premier WayPoint du step actuel
+                    startIdx = orsStep.WayPoints[0];
+
+                    // L'index de fin est le premier WayPoint du step SUIVANT
+                    // (ou la fin du tableau si c'est le dernier step)
+                    if (i < rawSteps.Count - 1)
+                    {
+                        var nextStep = rawSteps[i + 1];
+                        if (nextStep.WayPoints != null && nextStep.WayPoints.Count > 0)
+                        {
+                            endIdx = nextStep.WayPoints[0];
+                        }
+                    }
+                    // Sinon, on va jusqu'à la fin du tableau
+                }
+
+                // ───────────────────────────────────────────────────────────
+                // ✅ Extraire UNIQUEMENT les coordonnées de ce step
+                // ───────────────────────────────────────────────────────────
+                var stepCoordinates = allCoordinates
+                    .Skip(startIdx)              // Commence à l'index de début
+                    .Take(endIdx - startIdx)     // Prend exactement le bon nombre
+                    .ToArray();
+
+                // Log pour debug
+                Console.WriteLine($"[ParseORS]   Step {i + 1}/{rawSteps.Count}: {stepType} - " +
+                                 $"indices [{startIdx}, {endIdx}] = {stepCoordinates.Length} coords - " +
+                                 $"\"{orsStep.Instruction}\"");
+
+                // ───────────────────────────────────────────────────────────
+                // ✅ Créer le Step avec ses coordonnées spécifiques
+                // ───────────────────────────────────────────────────────────
+                convertedSteps.Add(new Step
+                {
+                    Type = stepType,                    // "walk" ou "bike"
+                    Instructions = orsStep.Instruction, // "Marcher vers le nord", etc.
+                    Distance = orsStep.Distance,        // En mètres
+                    Duration = orsStep.Duration,        // En secondes
+                    Coordinates = stepCoordinates       // ✅ NOUVEAU : Coordonnées exactes de ce step !
+                });
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // ÉTAPE 5 : Retourner l'ItineraryData avec les steps enrichis
+            // ═══════════════════════════════════════════════════════════════
+            Console.WriteLine($"[ParseORS] ✓ {convertedSteps.Count} steps créés avec coordonnées individuelles");
+
             return new ItineraryData
             {
-                TotalDistance = summary.Distance,
-                TotalDuration = summary.Duration,
-                Steps = convertedSteps,
-                Geometry = new Geometry { Coordinates = geometryArray }
+                TotalDistance = summary.Distance,           // Distance totale en mètres
+                TotalDuration = summary.Duration,           // Durée totale en secondes
+                Steps = convertedSteps.ToArray(),          // ✅ Steps avec Coordinates
+                Geometry = new Geometry
+                {
+                    Coordinates = allCoordinates           // Coordonnées globales (fallback)
+                }
             };
         }
 
@@ -760,15 +837,15 @@ namespace RoutingServer
             double totalDistance = segments.Sum(s => s.TotalDistance);
             double totalDuration = segments.Sum(s => s.TotalDuration);
 
-            Console.WriteLine($"[V2] ========================================");
-            Console.WriteLine($"[V2] === RÉSULTAT FINAL V2 ===");
-            Console.WriteLine($"[V2] Nombre de segments: {segments.Length}");
-            Console.WriteLine($"[V2] Distance totale: {totalDistance / 1000:F2} km");
-            Console.WriteLine($"[V2] Durée totale: {totalDuration / 60:F1} min");
-            Console.WriteLine($"[V2] Nombre d'étapes: {allSteps.Length}");
-            Console.WriteLine($"[V2] Points de géométrie: {allCoordinates.Length}");
-            Console.WriteLine($"[V2] Recommandation: {recommendation}");
-            Console.WriteLine($"[V2] ========================================");
+            Console.WriteLine($"[COMBINE] Segments: {segments.Length}");
+            Console.WriteLine($"[COMBINE] Total steps: {allSteps.Length}");
+
+            // ✅ NOUVEAU : Vérifier que chaque step a ses coordonnées
+            Console.WriteLine($"[COMBINE] Steps finaux:");
+            foreach (var step in allSteps)
+            {
+                Console.WriteLine($"  - {step.Type}: {step.Coordinates?.Length ?? 0} coords");
+            }
 
             return new ItineraryResult
             {
