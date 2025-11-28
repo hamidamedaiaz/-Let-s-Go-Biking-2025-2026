@@ -5,23 +5,57 @@ using System.Threading.Tasks;
 
 namespace ProxyCacheService
 {
+    /// <summary>
+    /// Resolves bike-sharing contracts based on geographical coordinates.
+    /// Maintains a cache of contract bounding boxes for efficient lookups.
+    /// </summary>
     public static class ContractResolver
     {
         private static Dictionary<string, ContractInfo> _contractsCache = new Dictionary<string, ContractInfo>();
         private static readonly object _lock = new object();
 
+        /// <summary>
+        /// Represents geographical information about a contract.
+        /// </summary>
         public class ContractInfo
         {
+            /// <summary>
+            /// Contract name.
+            /// </summary>
             public string Name { get; set; }
+
+            /// <summary>
+            /// Minimum latitude of the contract's coverage area.
+            /// </summary>
             public double MinLat { get; set; }
+
+            /// <summary>
+            /// Maximum latitude of the contract's coverage area.
+            /// </summary>
             public double MaxLat { get; set; }
+
+            /// <summary>
+            /// Minimum longitude of the contract's coverage area.
+            /// </summary>
             public double MinLon { get; set; }
+
+            /// <summary>
+            /// Maximum longitude of the contract's coverage area.
+            /// </summary>
             public double MaxLon { get; set; }
-            
+
+            /// <summary>
+            /// Approximate area of the contract's bounding box.
+            /// </summary>
             public double Area => (MaxLat - MinLat) * (MaxLon - MinLon);
         }
 
-        // ✅ NOUVEAU : Charger un contrat spécifique à la demande
+        /// <summary>
+        /// Loads the bounding box for a specific contract.
+        /// </summary>
+        /// <param name="proxy">Proxy service instance</param>
+        /// <param name="contractName">Contract name to load</param>
+        /// <returns>Contract info or null if loading fails</returns>
         private static ContractInfo LoadContractBBox(IProxyCacheService proxy, string contractName)
         {
             lock (_lock)
@@ -34,13 +68,13 @@ namespace ProxyCacheService
 
                 try
                 {
-                    Console.WriteLine($"[ContractResolver] Chargement bbox pour '{contractName}'...");
-                    
+                    Console.WriteLine($"[ContractResolver] Loading bounding box for '{contractName}'");
+
                     var stations = proxy.GetStationsByContract(contractName);
 
                     if (stations == null || stations.Count == 0)
                     {
-                        Console.WriteLine($"[ContractResolver] ⚠️ Aucune station pour '{contractName}'");
+                        Console.WriteLine($"[ContractResolver] No stations found for '{contractName}'");
                         return null;
                     }
 
@@ -55,24 +89,28 @@ namespace ProxyCacheService
 
                     _contractsCache[normalizedName] = info;
 
-                    Console.WriteLine($"[ContractResolver] ✓ {contractName}: bbox=[{info.MinLat:F3},{info.MinLon:F3}] -> [{info.MaxLat:F3},{info.MaxLon:F3}]");
-                    
+                    Console.WriteLine($"[ContractResolver] Loaded {contractName}: bbox=[{info.MinLat:F3},{info.MinLon:F3}] to [{info.MaxLat:F3},{info.MaxLon:F3}]");
+
                     return info;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[ContractResolver] ❌ Erreur pour '{contractName}': {ex.Message}");
+                    Console.WriteLine($"[ContractResolver] Error loading contract '{contractName}': {ex.Message}");
                     return null;
                 }
             }
         }
 
-        // ✅ MODIFIÉ : Charger seulement les contrats populaires au démarrage
+        /// <summary>
+        /// Preloads popular contracts at service startup.
+        /// </summary>
+        /// <param name="proxy">Proxy service instance</param>
+        /// <returns>Completed task</returns>
         public static Task LoadPopularContractsAsync(IProxyCacheService proxy)
         {
             lock (_lock)
             {
-                Console.WriteLine("[ContractResolver] Préchargement des contrats populaires...");
+                Console.WriteLine("[ContractResolver] Preloading popular contracts");
 
                 var popularContracts = new[] { "Lyon", "Paris", "Marseille", "Toulouse", "Nantes" };
 
@@ -81,12 +119,19 @@ namespace ProxyCacheService
                     LoadContractBBox(proxy, contractName);
                 }
 
-                Console.WriteLine($"[ContractResolver] ✓ {_contractsCache.Count} contrats populaires préchargés");
+                Console.WriteLine($"[ContractResolver] Preloaded {_contractsCache.Count} popular contracts");
                 return Task.CompletedTask;
             }
         }
 
-        // ✅ MODIFIÉ : Résoudre avec lazy loading
+        /// <summary>
+        /// Resolves the contract for given coordinates using lazy loading.
+        /// First checks preloaded contracts, then loads all contracts if necessary.
+        /// </summary>
+        /// <param name="proxy">Proxy service instance</param>
+        /// <param name="lat">Latitude</param>
+        /// <param name="lon">Longitude</param>
+        /// <returns>Contract name or null if no match found</returns>
         public static async Task<string> ResolveContractForCoordinate(IProxyCacheService proxy, double lat, double lon)
         {
             if (_contractsCache.Count == 0)
@@ -104,12 +149,12 @@ namespace ProxyCacheService
                 if (matchingContracts.Any())
                 {
                     var bestMatch = matchingContracts.OrderBy(c => c.Area).First();
-                    Console.WriteLine($"[ContractResolver] ✓ Coordonnée ({lat:F4}, {lon:F4}) dans '{bestMatch.Name}'");
+                    Console.WriteLine($"[ContractResolver] Coordinate ({lat:F4}, {lon:F4}) matched to '{bestMatch.Name}'");
                     return bestMatch.Name;
                 }
             }
 
-            Console.WriteLine($"[ContractResolver] Coordonnée hors bbox connus, chargement de tous les contrats...");
+            Console.WriteLine("[ContractResolver] Coordinate outside known bounding boxes, loading all contracts");
             await LoadAllContractsAsync(proxy);
 
             lock (_lock)
@@ -122,7 +167,7 @@ namespace ProxyCacheService
                 if (matchingContracts.Any())
                 {
                     var bestMatch = matchingContracts.OrderBy(c => c.Area).First();
-                    Console.WriteLine($"[ContractResolver] ✓ Coordonnée ({lat:F4}, {lon:F4}) dans '{bestMatch.Name}'");
+                    Console.WriteLine($"[ContractResolver] Coordinate ({lat:F4}, {lon:F4}) matched to '{bestMatch.Name}'");
                     return bestMatch.Name;
                 }
 
@@ -130,7 +175,10 @@ namespace ProxyCacheService
             }
         }
 
-        // ✅ NOUVEAU : Charger tous les contrats (fallback)
+        /// <summary>
+        /// Loads all available contracts (fallback mechanism).
+        /// </summary>
+        /// <param name="proxy">Proxy service instance</param>
         private static async Task LoadAllContractsAsync(IProxyCacheService proxy)
         {
             var contracts = proxy.GetAvailableContracts();
@@ -141,11 +189,17 @@ namespace ProxyCacheService
             }
         }
 
+        /// <summary>
+        /// Finds the nearest contract to given coordinates.
+        /// </summary>
+        /// <param name="lat">Latitude</param>
+        /// <param name="lon">Longitude</param>
+        /// <returns>Nearest contract name or null if none available</returns>
         private static string FindNearestContract(double lat, double lon)
         {
             if (_contractsCache.Count == 0)
             {
-                Console.WriteLine("[ContractResolver] ❌ Aucun contrat chargé");
+                Console.WriteLine("[ContractResolver] No contracts loaded");
                 return null;
             }
 
@@ -166,13 +220,17 @@ namespace ProxyCacheService
                 }
             }
 
-            Console.WriteLine($"[ContractResolver] ✓ Contrat le plus proche: '{bestContract}' à {bestDist:F2} km");
+            Console.WriteLine($"[ContractResolver] Nearest contract: '{bestContract}' at {bestDist:F2} km");
             return bestContract;
         }
 
+        /// <summary>
+        /// Calculates Haversine distance between two coordinates.
+        /// </summary>
+        /// <returns>Distance in kilometers</returns>
         private static double Haversine(double lat1, double lon1, double lat2, double lon2)
         {
-            double R = 6371;
+            const double EarthRadiusKm = 6371;
             double dLat = (lat2 - lat1) * Math.PI / 180;
             double dLon = (lon2 - lon1) * Math.PI / 180;
 
@@ -183,7 +241,7 @@ namespace ProxyCacheService
 
             double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
 
-            return R * c;
+            return EarthRadiusKm * c;
         }
     }
 }

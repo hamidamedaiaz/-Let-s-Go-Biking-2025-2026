@@ -410,5 +410,8 @@ FodyWeavers.xsd
 .nuget/
 ProxyCacheServer/config/jcdecaux.json
 
-
+.idea/
+*.iws
+*.iml
+launch_all.bat
 

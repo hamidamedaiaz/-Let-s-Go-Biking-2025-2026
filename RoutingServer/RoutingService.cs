@@ -1,20 +1,34 @@
-﻿using ProxyCacheService;
-using RoutingServer.ServiceReference1;
-using SharedModels;
+﻿using SharedModels;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.ServiceModel;
+using RoutingServer.ServiceReference2;
+
 
 namespace RoutingServer
 {
+    /// <summary>
+    /// Provides routing services for bike-sharing itineraries.
+    /// Supports multiple routing strategies: intra-contract, inter-contract, hybrid, and multi-contract.
+    /// </summary>
     public class RoutingService : IRoutingService
     {
         private readonly ProxyCacheServiceClient _proxyClient = new ProxyCacheServiceClient();
 
-        #region Méthodes d'obtention de segments
+        private const double MultiContractDistanceThreshold = 50000; // 50 km in meters
+        private const double HybridTimeAdvantageRatio = 0.9; // Bike must be 10% faster than walking
 
+        #region Segment Retrieval Methods
+
+        /// <summary>
+        /// Retrieves a walking segment between two coordinates.
+        /// </summary>
+        /// <param name="lat1">Starting latitude</param>
+        /// <param name="lon1">Starting longitude</param>
+        /// <param name="lat2">Ending latitude</param>
+        /// <param name="lon2">Ending longitude</param>
+        /// <returns>Itinerary data for the walking segment</returns>
         private ItineraryData GetWalkingSegment(
             double lat1, double lon1,
             double lat2, double lon2)
@@ -26,6 +40,14 @@ namespace RoutingServer
             return ParseORSJson(orsJson, "walk");
         }
 
+        /// <summary>
+        /// Retrieves a biking segment between two coordinates.
+        /// </summary>
+        /// <param name="lat1">Starting latitude</param>
+        /// <param name="lon1">Starting longitude</param>
+        /// <param name="lat2">Ending latitude</param>
+        /// <param name="lon2">Ending longitude</param>
+        /// <returns>Itinerary data for the biking segment</returns>
         private ItineraryData GetBikingSegment(
             double lat1, double lon1,
             double lat2, double lon2)
@@ -37,22 +59,19 @@ namespace RoutingServer
             return ParseORSJson(orsJson, "bike");
         }
 
-        // ===================================================================
-        // MÉTHODE ParseORSJson - VERSION COMPLÈTE ET CORRIGÉE
-        // ===================================================================
-        // À placer dans RoutingService.cs
-        // Remplace complètement l'ancienne version de ParseORSJson
-
+        /// <summary>
+        /// Parses OpenRouteService JSON response and converts it to internal itinerary data format.
+        /// </summary>
+        /// <param name="orsJson">Raw JSON response from ORS API</param>
+        /// <param name="stepType">Type of movement (walk or bike)</param>
+        /// <returns>Parsed itinerary data with coordinates and steps</returns>
         private ItineraryData ParseORSJson(string orsJson, string stepType)
         {
-            // ═══════════════════════════════════════════════════════════════
-            // ÉTAPE 1 : Désérialiser la réponse JSON d'OpenRouteService
-            // ═══════════════════════════════════════════════════════════════
             var ors = Newtonsoft.Json.JsonConvert.DeserializeObject<ORSResult>(orsJson);
 
             if (ors?.Features == null || ors.Features.Count == 0)
             {
-                Console.WriteLine("[RoutingService ERROR] No features in ORS response");
+                Console.WriteLine("[RoutingService] ERROR: No features in ORS response");
                 throw new Exception("ORS did not return features");
             }
 
@@ -60,20 +79,14 @@ namespace RoutingServer
 
             if (feature.Properties.Segments == null || feature.Properties.Segments.Count == 0)
             {
-                Console.WriteLine("[RoutingService ERROR] No segments in feature");
+                Console.WriteLine("[RoutingService] ERROR: No segments in feature");
                 throw new Exception("No segments in ORS feature");
             }
 
-            // ═══════════════════════════════════════════════════════════════
-            // ÉTAPE 2 : Extraire les données de base
-            // ═══════════════════════════════════════════════════════════════
             var segment = feature.Properties.Segments[0];
             var summary = feature.Properties.Summary;
             var rawSteps = segment.Steps;
 
-            // ═══════════════════════════════════════════════════════════════
-            // ÉTAPE 3 : ✅ NOUVEAU - Récupérer TOUTES les coordonnées
-            // ═══════════════════════════════════════════════════════════════
             double[][] allCoordinates = Array.Empty<double[]>();
 
             if (feature.Geometry?.Coordinates != null && feature.Geometry.Coordinates.Count > 0)
@@ -83,33 +96,22 @@ namespace RoutingServer
                     .ToArray();
             }
 
-            // ═══════════════════════════════════════════════════════════════
-            // ÉTAPE 4 : ✅ NOUVEAU - Extraire les coordonnées PAR STEP
-            //           en utilisant les WayPoints d'OpenRouteService
-            // ═══════════════════════════════════════════════════════════════
-            var convertedSteps = new List<Step>();
+            Console.WriteLine($"[RoutingService] Parsing {stepType} segment: {rawSteps.Count} steps, {allCoordinates.Length} coordinates");
 
-            Console.WriteLine($"[ParseORS] Type: {stepType}, {rawSteps.Count} steps, {allCoordinates.Length} coords totales");
+            var convertedSteps = new List<Step>();
+            double totalDistance = rawSteps.Sum(s => s.Distance);
+            int currentIndex = 0;
 
             for (int i = 0; i < rawSteps.Count; i++)
             {
                 var orsStep = rawSteps[i];
-
-                // ───────────────────────────────────────────────────────────
-                // ✅ Déterminer les indices de début et fin pour ce step
-                // ───────────────────────────────────────────────────────────
-                int startIdx = 0;
+                int startIdx = currentIndex;
                 int endIdx = allCoordinates.Length;
 
-                // OpenRouteService fournit des WayPoints qui indiquent
-                // les indices de début et fin de chaque step dans le tableau global
                 if (orsStep.WayPoints != null && orsStep.WayPoints.Count > 0)
                 {
-                    // L'index de début est le premier WayPoint du step actuel
                     startIdx = orsStep.WayPoints[0];
 
-                    // L'index de fin est le premier WayPoint du step SUIVANT
-                    // (ou la fin du tableau si c'est le dernier step)
                     if (i < rawSteps.Count - 1)
                     {
                         var nextStep = rawSteps[i + 1];
@@ -118,56 +120,69 @@ namespace RoutingServer
                             endIdx = nextStep.WayPoints[0];
                         }
                     }
-                    // Sinon, on va jusqu'à la fin du tableau
+
+                    currentIndex = endIdx;
+                }
+                else
+                {
+                    double stepRatio = orsStep.Distance / totalDistance;
+                    int pointsInStep = Math.Max(2, (int)(allCoordinates.Length * stepRatio));
+                    endIdx = Math.Min(currentIndex + pointsInStep, allCoordinates.Length);
+
+                    if (i == rawSteps.Count - 1)
+                    {
+                        endIdx = allCoordinates.Length;
+                    }
+
+                    currentIndex = endIdx;
                 }
 
-                // ───────────────────────────────────────────────────────────
-                // ✅ Extraire UNIQUEMENT les coordonnées de ce step
-                // ───────────────────────────────────────────────────────────
                 var stepCoordinates = allCoordinates
-                    .Skip(startIdx)              // Commence à l'index de début
-                    .Take(endIdx - startIdx)     // Prend exactement le bon nombre
+                    .Skip(startIdx)
+                    .Take(Math.Max(1, endIdx - startIdx))
                     .ToArray();
 
-                // Log pour debug
-                Console.WriteLine($"[ParseORS]   Step {i + 1}/{rawSteps.Count}: {stepType} - " +
-                                 $"indices [{startIdx}, {endIdx}] = {stepCoordinates.Length} coords - " +
-                                 $"\"{orsStep.Instruction}\"");
+                Console.WriteLine($"[RoutingService] Step {i + 1}/{rawSteps.Count}: {stepType} - indices [{startIdx}, {endIdx}] = {stepCoordinates.Length} coords");
 
-                // ───────────────────────────────────────────────────────────
-                // ✅ Créer le Step avec ses coordonnées spécifiques
-                // ───────────────────────────────────────────────────────────
                 convertedSteps.Add(new Step
                 {
-                    Type = stepType,                    // "walk" ou "bike"
-                    Instructions = orsStep.Instruction, // "Marcher vers le nord", etc.
-                    Distance = orsStep.Distance,        // En mètres
-                    Duration = orsStep.Duration,        // En secondes
-                    Coordinates = stepCoordinates       // ✅ NOUVEAU : Coordonnées exactes de ce step !
+                    Type = stepType,
+                    Instructions = orsStep.Instruction,
+                    Distance = orsStep.Distance,
+                    Duration = orsStep.Duration,
+                    Coordinates = stepCoordinates
                 });
             }
 
-            // ═══════════════════════════════════════════════════════════════
-            // ÉTAPE 5 : Retourner l'ItineraryData avec les steps enrichis
-            // ═══════════════════════════════════════════════════════════════
-            Console.WriteLine($"[ParseORS] ✓ {convertedSteps.Count} steps créés avec coordonnées individuelles");
+            Console.WriteLine($"[RoutingService] Successfully created {convertedSteps.Count} steps with coordinates");
 
             return new ItineraryData
             {
-                TotalDistance = summary.Distance,           // Distance totale en mètres
-                TotalDuration = summary.Duration,           // Durée totale en secondes
-                Steps = convertedSteps.ToArray(),          // ✅ Steps avec Coordinates
+                TotalDistance = summary.Distance,
+                TotalDuration = summary.Duration,
+                Steps = convertedSteps.ToArray(),
                 Geometry = new Geometry
                 {
-                    Coordinates = allCoordinates           // Coordonnées globales (fallback)
+                    Coordinates = allCoordinates
                 }
             };
         }
 
         #endregion
 
-        #region Point d'entrée principal
+        #region Main Entry Point
 
+        /// <summary>
+        /// Main entry point for itinerary calculation.
+        /// Determines the optimal routing strategy based on distance and contract availability.
+        /// </summary>
+        /// <param name="originLat">Origin latitude</param>
+        /// <param name="originLon">Origin longitude</param>
+        /// <param name="originCity">Origin city name</param>
+        /// <param name="destLat">Destination latitude</param>
+        /// <param name="destLon">Destination longitude</param>
+        /// <param name="destCity">Destination city name</param>
+        /// <returns>Complete itinerary result with recommendation</returns>
         public ItineraryResult GetItinerary(
             string originLat,
             string originLon,
@@ -183,97 +198,19 @@ namespace RoutingServer
                 double dLat = double.Parse(destLat, CultureInfo.InvariantCulture);
                 double dLon = double.Parse(destLon, CultureInfo.InvariantCulture);
 
-                Console.WriteLine($"[RoutingService] ========================================");
-                Console.WriteLine($"[RoutingService] Origine: {originCity} ({oLat}, {oLon})");
-                Console.WriteLine($"[RoutingService] Destination: {destCity} ({dLat}, {dLon})");
+                LogRouteRequest(originCity, oLat, oLon, destCity, dLat, dLon);
 
-                string originContract = null;
-                string destContract = null;
+                double totalDistance = Haversine(oLat, oLon, dLat, dLon);
+                Console.WriteLine($"[RoutingService] Total distance (crow flight): {totalDistance / 1000:F1} km");
 
-                // Tentative de résolution des contrats
-                try
-                {
-                    originContract = FindContractForCity(originCity);
-                    Console.WriteLine($"[RoutingService] ✓ Contrat origine: {originContract}");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[RoutingService] ⚠️ Contrat origine non trouvé: {ex.Message}");
-                    originContract = null;
-                }
+                string originContract = ResolveContract(originCity, "origin");
+                string destContract = ResolveContract(destCity, "destination");
 
-                try
-                {
-                    destContract = FindContractForCity(destCity);
-                    Console.WriteLine($"[RoutingService] ✓ Contrat destination: {destContract}");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[RoutingService] ⚠️ Contrat destination non trouvé: {ex.Message}");
-                    destContract = null;
-                }
-
-                // Cas 1 : Aucune ville identifiée → Marche directe
-                if (string.IsNullOrEmpty(originCity) && string.IsNullOrEmpty(destCity))
-                {
-                    Console.WriteLine($"[RoutingService] ❌ Aucune ville identifiée → Marche directe uniquement");
-
-                    var walkOnly = GetWalkingSegment(oLat, oLon, dLat, dLon);
-
-                    return new ItineraryResult
-                    {
-                        Success = true,
-                        Message = "walk",
-                        Data = walkOnly
-                    };
-                }
-
-                // Cas 2 : Départ SANS contrat, Arrivée AVEC contrat → Hybride (marche puis vélo)
-                if (originContract == null && destContract != null)
-                {
-                    Console.WriteLine($"[RoutingService] 🚶→🚴 Départ sans contrat → Arrivée avec contrat ({destContract}) → Mode Hybride");
-                    return ComputeHybridWalkToBike(oLat, oLon, dLat, dLon, destContract);
-                }
-
-                // Cas 3 : Départ AVEC contrat, Arrivée SANS contrat → Hybride (vélo puis marche)
-                if (originContract != null && destContract == null)
-                {
-                    Console.WriteLine($"[RoutingService] 🚴→🚶 Départ avec contrat ({originContract}) → Arrivée sans contrat → Mode Hybride");
-                    return ComputeHybridBikeToWalk(oLat, oLon, dLat, dLon, originContract);
-                }
-
-                // Cas 4 : Les deux villes identifiées mais aucun contrat trouvé
-                if (originContract == null && destContract == null)
-                {
-                    Console.WriteLine($"[RoutingService] ❌ Aucun contrat trouvé → Marche directe uniquement");
-
-                    var walkOnly = GetWalkingSegment(oLat, oLon, dLat, dLon);
-
-                    return new ItineraryResult
-                    {
-                        Success = true,
-                        Message = "walk",
-                        Data = walkOnly
-                    };
-                }
-
-                // Cas 5 : Contrats différents → V2 Inter-contrats
-                if (!originContract.Equals(destContract, StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.WriteLine($"[RoutingService] 🔄 Contrats différents ({originContract} ≠ {destContract}) → V2 Inter-contrats");
-                    return ComputeInterContractItinerary(oLat, oLon, dLat, dLon, originContract, destContract);
-                }
-
-                // Cas 6 : Même contrat → V1 Intra-contrat
-                Console.WriteLine($"[RoutingService] ✓ Même contrat ({originContract}) → V1 Intra-contrat");
-                var stations = _proxyClient.GetStationsByContract(originContract).ToList();
-                return ComputeItinerary(oLat, oLon, dLat, dLon, stations);
+                return DetermineRoutingStrategy(oLat, oLon, dLat, dLon, totalDistance, originContract, destContract);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RoutingService ERROR] {ex.Message}");
-                Console.WriteLine($"[RoutingService ERROR] StackTrace: {ex.StackTrace}");
-
+                Console.WriteLine($"[RoutingService] ERROR: {ex.Message}");
                 return new ItineraryResult
                 {
                     Success = false,
@@ -283,14 +220,99 @@ namespace RoutingServer
             }
         }
 
-        #endregion
-
-        #region Cas Hybrides : Départ ou Arrivée sans contrat
+        /// <summary>
+        /// Logs the initial route request details.
+        /// </summary>
+        private void LogRouteRequest(string originCity, double oLat, double oLon, string destCity, double dLat, double dLon)
+        {
+            Console.WriteLine("[RoutingService] ========================================");
+            Console.WriteLine($"[RoutingService] Route request received");
+            Console.WriteLine($"[RoutingService] Origin: {originCity} ({oLat}, {oLon})");
+            Console.WriteLine($"[RoutingService] Destination: {destCity} ({dLat}, {dLon})");
+        }
 
         /// <summary>
-        /// CAS HYBRIDE 1 : Départ SANS contrat → Arrivée AVEC contrat
-        /// Trajet : Marche → Station d'entrée → Vélo → Station finale → Marche
+        /// Attempts to resolve a contract for a given city.
         /// </summary>
+        /// <param name="city">City name</param>
+        /// <param name="locationType">Type of location (origin/destination) for logging</param>
+        /// <returns>Contract name if found, null otherwise</returns>
+        private string ResolveContract(string city, string locationType)
+        {
+            try
+            {
+                string contract = FindContractForCity(city);
+                Console.WriteLine($"[RoutingService] Contract for {locationType} resolved: {contract}");
+                return contract;
+            }
+            catch
+            {
+                Console.WriteLine($"[RoutingService] No contract found for {locationType}: {city}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Determines the optimal routing strategy based on distance and contract availability.
+        /// </summary>
+        /// <returns>Itinerary result with selected routing strategy</returns>
+        private ItineraryResult DetermineRoutingStrategy(
+            double oLat, double oLon, double dLat, double dLon,
+            double totalDistance, string originContract, string destContract)
+        {
+            if (totalDistance > MultiContractDistanceThreshold)
+            {
+                Console.WriteLine("[RoutingService] Strategy: Multi-contract (long distance)");
+                return ComputeMultiContractItinerary(oLat, oLon, dLat, dLon);
+            }
+
+            if (originContract != null && destContract != null &&
+                originContract.Equals(destContract, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine($"[RoutingService] Strategy: Intra-contract ({originContract})");
+                var stations = _proxyClient.GetStationsByContract(originContract).ToList();
+                return ComputeItinerary(oLat, oLon, dLat, dLon, stations);
+            }
+
+            if (originContract != null && destContract != null &&
+                !originContract.Equals(destContract, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("[RoutingService] Strategy: Inter-contract");
+                return ComputeInterContractItinerary(oLat, oLon, dLat, dLon, originContract, destContract);
+            }
+
+            if (originContract == null && destContract != null)
+            {
+                Console.WriteLine($"[RoutingService] Strategy: Hybrid walk-to-bike (destination: {destContract})");
+                return ComputeHybridWalkToBike(oLat, oLon, dLat, dLon, destContract);
+            }
+
+            if (originContract != null && destContract == null)
+            {
+                Console.WriteLine($"[RoutingService] Strategy: Hybrid bike-to-walk (origin: {originContract})");
+                return ComputeHybridBikeToWalk(oLat, oLon, dLat, dLon, originContract);
+            }
+
+            Console.WriteLine("[RoutingService] Strategy: Walking only (no contracts available)");
+            var walkOnly = GetWalkingSegment(oLat, oLon, dLat, dLon);
+            return new ItineraryResult
+            {
+                Success = true,
+                Message = "walk",
+                Data = walkOnly
+            };
+        }
+
+        #endregion
+
+        #region Hybrid Cases
+
+        /// <summary>
+        /// Computes a hybrid itinerary starting without a contract and ending with one.
+        /// Route: Walk to entry station → Bike within contract → Walk to destination.
+        /// </summary>
+        /// <param name="destContract">Destination contract name</param>
+        /// <returns>Hybrid itinerary result</returns>
         private ItineraryResult ComputeHybridWalkToBike(
             double oLat,
             double oLon,
@@ -298,22 +320,18 @@ namespace RoutingServer
             double dLon,
             string destContract)
         {
-            Console.WriteLine($"[HYBRID] ========================================");
-            Console.WriteLine($"[HYBRID] === MODE HYBRIDE : MARCHE → VÉLO ===");
-            Console.WriteLine($"[HYBRID] Départ sans contrat → Arrivée dans {destContract}");
+            Console.WriteLine("[RoutingService] ========================================");
+            Console.WriteLine("[RoutingService] Computing hybrid walk-to-bike itinerary");
+            Console.WriteLine($"[RoutingService] Destination contract: {destContract}");
 
-            // Récupérer les stations du contrat de destination
             var destStations = _proxyClient.GetStationsByContract(destContract).ToList();
-            Console.WriteLine($"[HYBRID] Stations dans {destContract}: {destStations.Count}");
-
-            // ===== ÉTAPE 1 : Trouver la station d'ENTRÉE la plus proche du départ =====
-            Console.WriteLine($"[HYBRID] --- Étape 1 : Recherche station d'ENTRÉE dans {destContract} ---");
+            Console.WriteLine($"[RoutingService] Available stations in {destContract}: {destStations.Count}");
 
             var entryCandidates = GetThreeClosestStartStations(oLat, oLon, destStations);
 
             if (!entryCandidates.Any())
             {
-                Console.WriteLine("[HYBRID] ❌ Aucune station disponible → Marche directe");
+                Console.WriteLine("[RoutingService] No available stations, falling back to walking");
                 return new ItineraryResult
                 {
                     Success = true,
@@ -326,36 +344,27 @@ namespace RoutingServer
             var bestEntryStation = realEntryWalks.OrderBy(x => x.walkingDistance).First();
             var walk1 = bestEntryStation.walkData;
 
-            Console.WriteLine($"[HYBRID] ✓ Station d'ENTRÉE choisie: {bestEntryStation.station.Name}");
-            Console.WriteLine($"[HYBRID] ✓ Segment 1 (MARCHE) : {walk1.TotalDistance:F0}m ({walk1.TotalDuration / 60:F1}min)");
-
-            // ===== ÉTAPE 2 : Trouver la station FINALE proche de la destination =====
-            Console.WriteLine($"[HYBRID] --- Étape 2 : Recherche station FINALE dans {destContract} ---");
+            Console.WriteLine($"[RoutingService] Entry station selected: {bestEntryStation.station.Name}");
+            Console.WriteLine($"[RoutingService] Walk to entry: {walk1.TotalDistance:F0}m ({walk1.TotalDuration / 60:F1}min)");
 
             var finalCandidates = GetThreeClosestEndStations(dLat, dLon, destStations);
 
             if (!finalCandidates.Any())
             {
-                Console.WriteLine("[HYBRID] ❌ Aucune station de dépôt disponible");
-
+                Console.WriteLine("[RoutingService] No available end stations");
                 var fallbackWalk = GetWalkingSegment(
                     bestEntryStation.station.Position.Latitude,
                     bestEntryStation.station.Position.Longitude,
                     dLat,
                     dLon);
 
-                return CombineSegments(
-                    new[] { walk1, fallbackWalk },
-                    "walk");
+                return CombineSegments(new[] { walk1, fallbackWalk }, "walk");
             }
 
             var realFinalWalks = ComputeRealWalkStationsToDestination(dLat, dLon, finalCandidates);
             var bestFinalStation = realFinalWalks.OrderBy(x => x.walkingDistance).First();
 
-            Console.WriteLine($"[HYBRID] ✓ Station FINALE choisie: {bestFinalStation.station.Name}");
-
-            // ===== ÉTAPE 3 : Vélo entre les deux stations =====
-            Console.WriteLine($"[HYBRID] --- Étape 3 : Vélo dans {destContract} ---");
+            Console.WriteLine($"[RoutingService] Final station selected: {bestFinalStation.station.Name}");
 
             var bike = GetBikingSegment(
                 bestEntryStation.station.Position.Latitude,
@@ -363,32 +372,28 @@ namespace RoutingServer
                 bestFinalStation.station.Position.Latitude,
                 bestFinalStation.station.Position.Longitude);
 
-            Console.WriteLine($"[HYBRID] ✓ Segment 2 (VÉLO) : {bike.TotalDistance:F0}m ({bike.TotalDuration / 60:F1}min)");
+            Console.WriteLine($"[RoutingService] Bike segment: {bike.TotalDistance:F0}m ({bike.TotalDuration / 60:F1}min)");
 
-            // ===== ÉTAPE 4 : Marche vers la destination =====
             var walk2 = bestFinalStation.walkData;
+            Console.WriteLine($"[RoutingService] Walk to destination: {walk2.TotalDistance:F0}m ({walk2.TotalDuration / 60:F1}min)");
 
-            Console.WriteLine($"[HYBRID] ✓ Segment 3 (MARCHE) : {walk2.TotalDistance:F0}m ({walk2.TotalDuration / 60:F1}min)");
-
-            // ===== COMPARAISON avec marche directe =====
             var walkDirect = GetWalkingSegment(oLat, oLon, dLat, dLon);
             double hybridTime = walk1.TotalDuration + bike.TotalDuration + walk2.TotalDuration;
 
-            Console.WriteLine($"[HYBRID] Durée hybride: {hybridTime / 60:F1}min vs marche: {walkDirect.TotalDuration / 60:F1}min");
+            Console.WriteLine($"[RoutingService] Hybrid duration: {hybridTime / 60:F1}min vs walk: {walkDirect.TotalDuration / 60:F1}min");
 
-            string recommendation = hybridTime < walkDirect.TotalDuration * 0.9 ? "bike" : "walk";
+            string recommendation = hybridTime < walkDirect.TotalDuration * HybridTimeAdvantageRatio ? "bike" : "walk";
+            Console.WriteLine($"[RoutingService] Recommendation: {recommendation}");
 
-            Console.WriteLine($"[HYBRID] Recommandation: {recommendation}");
-
-            return CombineSegments(
-                new[] { walk1, bike, walk2 },
-                recommendation);
+            return CombineSegments(new[] { walk1, bike, walk2 }, recommendation);
         }
 
         /// <summary>
-        /// CAS HYBRIDE 2 : Départ AVEC contrat → Arrivée SANS contrat
-        /// Trajet : Marche → Station départ → Vélo → Station sortie → Marche
+        /// Computes a hybrid itinerary starting with a contract and ending without one.
+        /// Route: Walk to start station → Bike within contract → Walk to destination.
         /// </summary>
+        /// <param name="originContract">Origin contract name</param>
+        /// <returns>Hybrid itinerary result</returns>
         private ItineraryResult ComputeHybridBikeToWalk(
             double oLat,
             double oLon,
@@ -396,22 +401,18 @@ namespace RoutingServer
             double dLon,
             string originContract)
         {
-            Console.WriteLine($"[HYBRID] ========================================");
-            Console.WriteLine($"[HYBRID] === MODE HYBRIDE : VÉLO → MARCHE ===");
-            Console.WriteLine($"[HYBRID] Départ dans {originContract} → Arrivée sans contrat");
+            Console.WriteLine("[RoutingService] ========================================");
+            Console.WriteLine("[RoutingService] Computing hybrid bike-to-walk itinerary");
+            Console.WriteLine($"[RoutingService] Origin contract: {originContract}");
 
-            // Récupérer les stations du contrat d'origine
             var originStations = _proxyClient.GetStationsByContract(originContract).ToList();
-            Console.WriteLine($"[HYBRID] Stations dans {originContract}: {originStations.Count}");
-
-            // ===== ÉTAPE 1 : Trouver la station de DÉPART proche de l'origine =====
-            Console.WriteLine($"[HYBRID] --- Étape 1 : Recherche station de DÉPART dans {originContract} ---");
+            Console.WriteLine($"[RoutingService] Available stations in {originContract}: {originStations.Count}");
 
             var startCandidates = GetThreeClosestStartStations(oLat, oLon, originStations);
 
             if (!startCandidates.Any())
             {
-                Console.WriteLine("[HYBRID] ❌ Aucune station disponible → Marche directe");
+                Console.WriteLine("[RoutingService] No available stations, falling back to walking");
                 return new ItineraryResult
                 {
                     Success = true,
@@ -424,13 +425,9 @@ namespace RoutingServer
             var bestStartStation = realStartWalks.OrderBy(x => x.walkingDistance).First();
             var walk1 = bestStartStation.walkData;
 
-            Console.WriteLine($"[HYBRID] ✓ Station de DÉPART choisie: {bestStartStation.station.Name}");
-            Console.WriteLine($"[HYBRID] ✓ Segment 1 (MARCHE) : {walk1.TotalDistance:F0}m ({walk1.TotalDuration / 60:F1}min)");
+            Console.WriteLine($"[RoutingService] Start station selected: {bestStartStation.station.Name}");
+            Console.WriteLine($"[RoutingService] Walk to start: {walk1.TotalDistance:F0}m ({walk1.TotalDuration / 60:F1}min)");
 
-            // ===== ÉTAPE 2 : Trouver la station de SORTIE la plus proche de la destination =====
-            Console.WriteLine($"[HYBRID] --- Étape 2 : Recherche station de SORTIE dans {originContract} ---");
-
-            // On cherche parmi TOUTES les stations celle qui est la plus proche de la DESTINATION
             var allExitCandidates = originStations
                 .Where(s => s.Status == "OPEN")
                 .Where(s => s.TotalStands.Availabilities.Stands > 0)
@@ -438,7 +435,7 @@ namespace RoutingServer
 
             if (!allExitCandidates.Any())
             {
-                Console.WriteLine("[HYBRID] ❌ Aucune station de sortie disponible");
+                Console.WriteLine("[RoutingService] No available exit stations");
                 return new ItineraryResult
                 {
                     Success = true,
@@ -447,16 +444,12 @@ namespace RoutingServer
                 };
             }
 
-            // Trouver la station la plus proche de la DESTINATION
             var bestExitStation = allExitCandidates
                 .OrderBy(s => Haversine(s.Position.Latitude, s.Position.Longitude, dLat, dLon))
                 .First();
 
-            Console.WriteLine($"[HYBRID] ✓ Station de SORTIE choisie: {bestExitStation.Name}");
-            Console.WriteLine($"[HYBRID]   Distance vers destination: {Haversine(bestExitStation.Position.Latitude, bestExitStation.Position.Longitude, dLat, dLon):F0}m");
-
-            // ===== ÉTAPE 3 : Vélo entre les deux stations =====
-            Console.WriteLine($"[HYBRID] --- Étape 3 : Vélo dans {originContract} ---");
+            Console.WriteLine($"[RoutingService] Exit station selected: {bestExitStation.Name}");
+            Console.WriteLine($"[RoutingService] Distance to destination: {Haversine(bestExitStation.Position.Latitude, bestExitStation.Position.Longitude, dLat, dLon):F0}m");
 
             var bike = GetBikingSegment(
                 bestStartStation.station.Position.Latitude,
@@ -464,10 +457,7 @@ namespace RoutingServer
                 bestExitStation.Position.Latitude,
                 bestExitStation.Position.Longitude);
 
-            Console.WriteLine($"[HYBRID] ✓ Segment 2 (VÉLO) : {bike.TotalDistance:F0}m ({bike.TotalDuration / 60:F1}min)");
-
-            // ===== ÉTAPE 4 : Marche vers la destination =====
-            Console.WriteLine($"[HYBRID] --- Étape 4 : Marche vers destination ---");
+            Console.WriteLine($"[RoutingService] Bike segment: {bike.TotalDistance:F0}m ({bike.TotalDuration / 60:F1}min)");
 
             var walk2 = GetWalkingSegment(
                 bestExitStation.Position.Latitude,
@@ -475,27 +465,29 @@ namespace RoutingServer
                 dLat,
                 dLon);
 
-            Console.WriteLine($"[HYBRID] ✓ Segment 3 (MARCHE) : {walk2.TotalDistance:F0}m ({walk2.TotalDuration / 60:F1}min)");
+            Console.WriteLine($"[RoutingService] Walk to destination: {walk2.TotalDistance:F0}m ({walk2.TotalDuration / 60:F1}min)");
 
-            // ===== COMPARAISON avec marche directe =====
             var walkDirect = GetWalkingSegment(oLat, oLon, dLat, dLon);
             double hybridTime = walk1.TotalDuration + bike.TotalDuration + walk2.TotalDuration;
 
-            Console.WriteLine($"[HYBRID] Durée hybride: {hybridTime / 60:F1}min vs marche: {walkDirect.TotalDuration / 60:F1}min");
+            Console.WriteLine($"[RoutingService] Hybrid duration: {hybridTime / 60:F1}min vs walk: {walkDirect.TotalDuration / 60:F1}min");
 
-            string recommendation = hybridTime < walkDirect.TotalDuration * 0.9 ? "bike" : "walk";
+            string recommendation = hybridTime < walkDirect.TotalDuration * HybridTimeAdvantageRatio ? "bike" : "walk";
+            Console.WriteLine($"[RoutingService] Recommendation: {recommendation}");
 
-            Console.WriteLine($"[HYBRID] Recommandation: {recommendation}");
-
-            return CombineSegments(
-                new[] { walk1, bike, walk2 },
-                recommendation);
+            return CombineSegments(new[] { walk1, bike, walk2 }, recommendation);
         }
 
         #endregion
 
-        #region V1 : Itinéraire intra-contrat (même contrat)
+        #region Intra-Contract Itinerary
 
+        /// <summary>
+        /// Computes an itinerary within a single contract.
+        /// Route: Walk to start station → Bike to end station → Walk to destination.
+        /// </summary>
+        /// <param name="stations">List of available stations in the contract</param>
+        /// <returns>Intra-contract itinerary result</returns>
         private ItineraryResult ComputeItinerary(
             double oLat,
             double oLon,
@@ -503,17 +495,17 @@ namespace RoutingServer
             double dLon,
             List<BikeStation> stations)
         {
-            Console.WriteLine($"[V1] === CALCUL ITINÉRAIRE INTRA-CONTRAT ===");
+            Console.WriteLine("[RoutingService] Computing intra-contract itinerary");
 
             var startCandidates = GetThreeClosestStartStations(oLat, oLon, stations);
             var endCandidates = GetThreeClosestEndStations(dLat, dLon, stations);
 
-            Console.WriteLine($"[V1] Stations de départ candidates: {startCandidates.Count}");
-            Console.WriteLine($"[V1] Stations d'arrivée candidates: {endCandidates.Count}");
+            Console.WriteLine($"[RoutingService] Start station candidates: {startCandidates.Count}");
+            Console.WriteLine($"[RoutingService] End station candidates: {endCandidates.Count}");
 
             if (!startCandidates.Any() || !endCandidates.Any())
             {
-                Console.WriteLine($"[V1] ❌ Pas assez de stations → Marche directe");
+                Console.WriteLine("[RoutingService] Insufficient stations available, falling back to walking");
                 return new ItineraryResult
                 {
                     Success = true,
@@ -523,7 +515,6 @@ namespace RoutingServer
             }
 
             var walkDirect = GetWalkingSegment(oLat, oLon, dLat, dLon);
-
             var realStartWalks = ComputeRealWalkOriginToStations(oLat, oLon, startCandidates);
             var realEndWalks = ComputeRealWalkStationsToDestination(dLat, dLon, endCandidates);
 
@@ -535,12 +526,12 @@ namespace RoutingServer
             var walk1 = bestStart.walkData;
             var walk2 = bestEnd.walkData;
 
-            Console.WriteLine($"[V1] Station de départ: {startStation.Name} ({walk1.TotalDistance:F0}m)");
-            Console.WriteLine($"[V1] Station d'arrivée: {endStation.Name} ({walk2.TotalDistance:F0}m)");
+            Console.WriteLine($"[RoutingService] Start station: {startStation.Name} ({walk1.TotalDistance:F0}m)");
+            Console.WriteLine($"[RoutingService] End station: {endStation.Name} ({walk2.TotalDistance:F0}m)");
 
             if ((walk1.TotalDuration + walk2.TotalDuration) > walkDirect.TotalDuration * 0.5)
             {
-                Console.WriteLine($"[V1] ⚠️ Marches trop longues → Marche directe");
+                Console.WriteLine("[RoutingService] Walking segments too long, recommending direct walk");
                 return new ItineraryResult
                 {
                     Success = true,
@@ -558,23 +549,18 @@ namespace RoutingServer
             double totalBike = walk1.TotalDuration + bike.TotalDuration + walk2.TotalDuration;
             double walkTotalTime = walkDirect.TotalDuration;
 
-            Console.WriteLine($"[V1] Durée vélo: {totalBike / 60:F1}min vs marche: {walkTotalTime / 60:F1}min");
+            Console.WriteLine($"[RoutingService] Bike route duration: {totalBike / 60:F1}min vs walk: {walkTotalTime / 60:F1}min");
 
-            string recommendation = totalBike < walkDirect.TotalDuration * 0.9
-                ? "bike"
-                : "walk";
-
-            Console.WriteLine($"[V1] Recommandation: {recommendation}");
+            string recommendation = totalBike < walkDirect.TotalDuration * HybridTimeAdvantageRatio ? "bike" : "walk";
+            Console.WriteLine($"[RoutingService] Recommendation: {recommendation}");
 
             var allSteps = walk1.Steps.Concat(bike.Steps).Concat(walk2.Steps).ToArray();
-
             var combinedCoordinates = walk1.Geometry.Coordinates
                 .Concat(bike.Geometry.Coordinates)
                 .Concat(walk2.Geometry.Coordinates)
                 .ToArray();
 
-            Console.WriteLine($"[V1] Géométrie totale: {combinedCoordinates.Length} points");
-            Console.WriteLine($"[V1] === RÉSULTAT FINAL V1 ===");
+            Console.WriteLine($"[RoutingService] Total geometry points: {combinedCoordinates.Length}");
 
             return new ItineraryResult
             {
@@ -592,8 +578,15 @@ namespace RoutingServer
 
         #endregion
 
-        #region V2 : Itinéraire inter-contrats
+        #region Inter-Contract Itinerary
 
+        /// <summary>
+        /// Computes an itinerary spanning multiple contracts.
+        /// Route: Walk → Bike (Contract A) → Walk between contracts → Bike (Contract B) → Walk.
+        /// </summary>
+        /// <param name="originContract">Origin contract name</param>
+        /// <param name="destContract">Destination contract name</param>
+        /// <returns>Inter-contract itinerary result</returns>
         private ItineraryResult ComputeInterContractItinerary(
             double oLat,
             double oLon,
@@ -602,26 +595,22 @@ namespace RoutingServer
             string originContract,
             string destContract)
         {
-            Console.WriteLine($"[V2] ========================================");
-            Console.WriteLine($"[V2] === CALCUL ITINÉRAIRE INTER-CONTRATS ===");
-            Console.WriteLine($"[V2] Contrat Départ: {originContract}");
-            Console.WriteLine($"[V2] Contrat Arrivée: {destContract}");
+            Console.WriteLine("[RoutingService] ========================================");
+            Console.WriteLine("[RoutingService] Computing inter-contract itinerary");
+            Console.WriteLine($"[RoutingService] Origin contract: {originContract}");
+            Console.WriteLine($"[RoutingService] Destination contract: {destContract}");
 
-            // Récupérer les stations des deux contrats
             var originStations = _proxyClient.GetStationsByContract(originContract).ToList();
             var destStations = _proxyClient.GetStationsByContract(destContract).ToList();
 
-            Console.WriteLine($"[V2] Stations contrat origine: {originStations.Count}");
-            Console.WriteLine($"[V2] Stations contrat destination: {destStations.Count}");
-
-            // ===== ÉTAPE 1 : Départ → Station de départ dans Contrat A =====
-            Console.WriteLine($"[V2] --- Étape 1 : Recherche station de DÉPART dans {originContract} ---");
+            Console.WriteLine($"[RoutingService] Origin stations: {originStations.Count}");
+            Console.WriteLine($"[RoutingService] Destination stations: {destStations.Count}");
 
             var startCandidates = GetThreeClosestStartStations(oLat, oLon, originStations);
 
             if (!startCandidates.Any())
             {
-                Console.WriteLine("[V2] ❌ Aucune station disponible dans contrat origine → Marche directe");
+                Console.WriteLine("[RoutingService] No available start stations, falling back to walking");
                 return new ItineraryResult
                 {
                     Success = true,
@@ -634,22 +623,17 @@ namespace RoutingServer
             var bestStartStation = realStartWalks.OrderBy(x => x.walkingDistance).First();
             var walk1 = bestStartStation.walkData;
 
-            Console.WriteLine($"[V2] ✓ Station de DÉPART choisie: {bestStartStation.station.Name}");
-            Console.WriteLine($"[V2] ✓ Segment 1 (MARCHE) : {walk1.TotalDistance:F0}m ({walk1.TotalDuration / 60:F1}min)");
+            Console.WriteLine($"[RoutingService] Start station: {bestStartStation.station.Name}");
+            Console.WriteLine($"[RoutingService] Walk to start: {walk1.TotalDistance:F0}m ({walk1.TotalDuration / 60:F1}min)");
 
-            // ===== ÉTAPE 2 : Trouver la station de SORTIE de Contrat A =====
-            Console.WriteLine($"[V2] --- Étape 2 : Recherche station de SORTIE dans {originContract} ---");
-
-            // ⚠️ IMPORTANT : On cherche parmi TOUTES les stations du Contrat A
-            // qui acceptent les dépôts (pas seulement celles proches de la station de départ)
             var allExitCandidates = originStations
                 .Where(s => s.Status == "OPEN")
-                .Where(s => s.TotalStands.Availabilities.Stands > 0)  // Disponible pour déposer
+                .Where(s => s.TotalStands.Availabilities.Stands > 0)
                 .ToList();
 
             if (!allExitCandidates.Any())
             {
-                Console.WriteLine("[V2] ❌ Aucune station de sortie disponible");
+                Console.WriteLine("[RoutingService] No available exit stations");
                 return new ItineraryResult
                 {
                     Success = true,
@@ -658,15 +642,10 @@ namespace RoutingServer
                 };
             }
 
-            Console.WriteLine($"[V2] Nombre de stations de sortie possibles dans {originContract}: {allExitCandidates.Count}");
+            Console.WriteLine($"[RoutingService] Exit station candidates in {originContract}: {allExitCandidates.Count}");
 
-            // Trouver la station de sortie qui minimise la distance vers Contrat B
             var bestExitStation = FindBestExitStation(allExitCandidates, destStations);
-
-            Console.WriteLine($"[V2] ✓ Station de SORTIE choisie: {bestExitStation.Name}");
-
-            // ===== ÉTAPE 3 : Vélo dans Contrat A =====
-            Console.WriteLine($"[V2] --- Étape 3 : Vélo dans {originContract} ---");
+            Console.WriteLine($"[RoutingService] Exit station selected: {bestExitStation.Name}");
 
             var bike1 = GetBikingSegment(
                 bestStartStation.station.Position.Latitude,
@@ -674,10 +653,7 @@ namespace RoutingServer
                 bestExitStation.Position.Latitude,
                 bestExitStation.Position.Longitude);
 
-            Console.WriteLine($"[V2] ✓ Segment 2 (VÉLO) : {bike1.TotalDistance:F0}m ({bike1.TotalDuration / 60:F1}min)");
-
-            // ===== ÉTAPE 4 : Trouver la station d'ENTRÉE de Contrat B =====
-            Console.WriteLine($"[V2] --- Étape 4 : Recherche station d'ENTRÉE dans {destContract} ---");
+            Console.WriteLine($"[RoutingService] Bike in {originContract}: {bike1.TotalDistance:F0}m ({bike1.TotalDuration / 60:F1}min)");
 
             var entryCandidates = GetThreeClosestStartStations(
                 bestExitStation.Position.Latitude,
@@ -686,17 +662,14 @@ namespace RoutingServer
 
             if (!entryCandidates.Any())
             {
-                Console.WriteLine("[V2] ❌ Aucune station disponible dans contrat destination");
-
+                Console.WriteLine("[RoutingService] No available entry stations in destination contract");
                 var fallbackWalk = GetWalkingSegment(
                     bestExitStation.Position.Latitude,
                     bestExitStation.Position.Longitude,
                     dLat,
                     dLon);
 
-                return CombineSegments(
-                    new[] { walk1, bike1, fallbackWalk },
-                    "walk");
+                return CombineSegments(new[] { walk1, bike1, fallbackWalk }, "walk");
             }
 
             var realEntryWalks = ComputeRealWalkOriginToStations(
@@ -705,38 +678,29 @@ namespace RoutingServer
                 entryCandidates);
 
             var bestEntryStation = realEntryWalks.OrderBy(x => x.walkingDistance).First();
-            var walk2 = bestEntryStation.walkData; // Marche entre les deux contrats
+            var walk2 = bestEntryStation.walkData;
 
-            Console.WriteLine($"[V2] ✓ Station d'ENTRÉE choisie: {bestEntryStation.station.Name}");
-            Console.WriteLine($"[V2] ✓ Segment 3 (MARCHE ENTRE CONTRATS) : {walk2.TotalDistance:F0}m ({walk2.TotalDuration / 60:F1}min)");
-
-            // ===== ÉTAPE 5 : Trouver la station FINALE dans Contrat B =====
-            Console.WriteLine($"[V2] --- Étape 5 : Recherche station FINALE dans {destContract} ---");
+            Console.WriteLine($"[RoutingService] Entry station in {destContract}: {bestEntryStation.station.Name}");
+            Console.WriteLine($"[RoutingService] Walk between contracts: {walk2.TotalDistance:F0}m ({walk2.TotalDuration / 60:F1}min)");
 
             var finalCandidates = GetThreeClosestEndStations(dLat, dLon, destStations);
 
             if (!finalCandidates.Any())
             {
-                Console.WriteLine("[V2] ❌ Aucune station de dépôt disponible dans contrat destination");
-
+                Console.WriteLine("[RoutingService] No available final stations");
                 var fallbackWalk = GetWalkingSegment(
                     bestEntryStation.station.Position.Latitude,
                     bestEntryStation.station.Position.Longitude,
                     dLat,
                     dLon);
 
-                return CombineSegments(
-                    new[] { walk1, bike1, walk2, fallbackWalk },
-                    "walk");
+                return CombineSegments(new[] { walk1, bike1, walk2, fallbackWalk }, "walk");
             }
 
             var realFinalWalks = ComputeRealWalkStationsToDestination(dLat, dLon, finalCandidates);
             var bestFinalStation = realFinalWalks.OrderBy(x => x.walkingDistance).First();
 
-            Console.WriteLine($"[V2] ✓ Station FINALE choisie: {bestFinalStation.station.Name}");
-
-            // ===== ÉTAPE 6 : Vélo dans Contrat B =====
-            Console.WriteLine($"[V2] --- Étape 6 : Vélo dans {destContract} ---");
+            Console.WriteLine($"[RoutingService] Final station: {bestFinalStation.station.Name}");
 
             var bike2 = GetBikingSegment(
                 bestEntryStation.station.Position.Latitude,
@@ -744,35 +708,25 @@ namespace RoutingServer
                 bestFinalStation.station.Position.Latitude,
                 bestFinalStation.station.Position.Longitude);
 
-            Console.WriteLine($"[V2] ✓ Segment 4 (VÉLO) : {bike2.TotalDistance:F0}m ({bike2.TotalDuration / 60:F1}min)");
-
-            // ===== ÉTAPE 7 : Station finale → Destination =====
-            Console.WriteLine($"[V2] --- Étape 7 : Marche vers destination ---");
+            Console.WriteLine($"[RoutingService] Bike in {destContract}: {bike2.TotalDistance:F0}m ({bike2.TotalDuration / 60:F1}min)");
 
             var walk3 = bestFinalStation.walkData;
+            Console.WriteLine($"[RoutingService] Walk to destination: {walk3.TotalDistance:F0}m ({walk3.TotalDuration / 60:F1}min)");
 
-            Console.WriteLine($"[V2] ✓ Segment 5 (MARCHE) : {walk3.TotalDistance:F0}m ({walk3.TotalDuration / 60:F1}min)");
-
-            // ===== COMBINAISON FINALE =====
-            Console.WriteLine($"[V2] --- Combinaison des segments ---");
-
-            return CombineSegments(
-                new[] { walk1, bike1, walk2, bike2, walk3 },
-                "bike");
+            return CombineSegments(new[] { walk1, bike1, walk2, bike2, walk3 }, "bike");
         }
 
         /// <summary>
-        /// Trouve la station de sortie du contrat A qui minimise la distance
-        /// vers la station d'entrée la plus proche du contrat B
-        /// 
-        /// Cette méthode cherche parmi TOUTES les stations du Contrat A (qui acceptent les dépôts)
-        /// et trouve celle qui est la plus proche de la frontière vers Contrat B
+        /// Finds the optimal exit station from contract A that minimizes distance to contract B.
         /// </summary>
+        /// <param name="exitCandidates">Available exit stations in origin contract</param>
+        /// <param name="destStations">Stations in destination contract</param>
+        /// <returns>Best exit station</returns>
         private BikeStation FindBestExitStation(
             List<BikeStation> exitCandidates,
             List<BikeStation> destStations)
         {
-            Console.WriteLine($"[V2] Analyse de {exitCandidates.Count} stations de sortie possibles...");
+            Console.WriteLine($"[RoutingService] Analyzing {exitCandidates.Count} exit station candidates");
 
             BikeStation bestExit = null;
             BikeStation bestEntryMatch = null;
@@ -780,8 +734,6 @@ namespace RoutingServer
 
             foreach (var exit in exitCandidates)
             {
-                // Trouver la station la plus proche dans le contrat de destination
-                // qui a des vélos disponibles
                 var closestEntry = destStations
                     .Where(s => s.Status == "OPEN" && s.TotalStands.Availabilities.Bikes > 0)
                     .OrderBy(s => Haversine(
@@ -799,10 +751,9 @@ namespace RoutingServer
                         closestEntry.Position.Latitude,
                         closestEntry.Position.Longitude);
 
-                    // Log seulement les 10 meilleures pour ne pas surcharger la console
                     if (dist < minDistance * 1.5 || minDistance == double.MaxValue)
                     {
-                        Console.WriteLine($"[V2]   - {exit.Name} → {closestEntry.Name} : {dist:F0}m");
+                        Console.WriteLine($"[RoutingService] Candidate: {exit.Name} → {closestEntry.Name}: {dist:F0}m");
                     }
 
                     if (dist < minDistance)
@@ -816,19 +767,22 @@ namespace RoutingServer
 
             if (bestExit != null && bestEntryMatch != null)
             {
-                Console.WriteLine($"[V2] ===================================================");
-                Console.WriteLine($"[V2] ✓ MEILLEURE STATION DE SORTIE: {bestExit.Name}");
-                Console.WriteLine($"[V2] ✓ Station d'entrée correspondante: {bestEntryMatch.Name}");
-                Console.WriteLine($"[V2] ✓ Distance entre contrats: {minDistance:F0}m ({minDistance / 1000:F2} km)");
-                Console.WriteLine($"[V2] ===================================================");
+                Console.WriteLine("[RoutingService] ===================================================");
+                Console.WriteLine($"[RoutingService] Best exit station: {bestExit.Name}");
+                Console.WriteLine($"[RoutingService] Corresponding entry station: {bestEntryMatch.Name}");
+                Console.WriteLine($"[RoutingService] Distance between contracts: {minDistance:F0}m ({minDistance / 1000:F2} km)");
+                Console.WriteLine("[RoutingService] ===================================================");
             }
 
             return bestExit ?? exitCandidates.First();
         }
 
         /// <summary>
-        /// Combine plusieurs segments en un seul itinéraire
+        /// Combines multiple itinerary segments into a single result.
         /// </summary>
+        /// <param name="segments">Array of itinerary segments to combine</param>
+        /// <param name="recommendation">Recommended mode of transport (walk/bike)</param>
+        /// <returns>Combined itinerary result</returns>
         private ItineraryResult CombineSegments(ItineraryData[] segments, string recommendation)
         {
             var allSteps = segments.SelectMany(s => s.Steps).ToArray();
@@ -837,15 +791,7 @@ namespace RoutingServer
             double totalDistance = segments.Sum(s => s.TotalDistance);
             double totalDuration = segments.Sum(s => s.TotalDuration);
 
-            Console.WriteLine($"[COMBINE] Segments: {segments.Length}");
-            Console.WriteLine($"[COMBINE] Total steps: {allSteps.Length}");
-
-            // ✅ NOUVEAU : Vérifier que chaque step a ses coordonnées
-            Console.WriteLine($"[COMBINE] Steps finaux:");
-            foreach (var step in allSteps)
-            {
-                Console.WriteLine($"  - {step.Type}: {step.Coordinates?.Length ?? 0} coords");
-            }
+            Console.WriteLine($"[RoutingService] Combined {segments.Length} segments into {allSteps.Length} steps");
 
             return new ItineraryResult
             {
@@ -863,11 +809,29 @@ namespace RoutingServer
 
         #endregion
 
-        #region Méthodes utilitaires
+        #region Helper Classes
 
+        /// <summary>
+        /// Helper class to encapsulate station walk calculation results.
+        /// </summary>
+        private class StationWalkResult
+        {
+            public BikeStation station { get; set; }
+            public double walkingDistance { get; set; }
+            public ItineraryData walkData { get; set; }
+        }
+
+        #endregion
+
+        #region Utility Methods
+
+        /// <summary>
+        /// Calculates the Haversine distance between two geographical coordinates.
+        /// </summary>
+        /// <returns>Distance in meters</returns>
         private double Haversine(double lat1, double lon1, double lat2, double lon2)
         {
-            double R = 6371000; // Rayon de la Terre en mètres
+            const double EarthRadiusMeters = 6371000;
             double dLat = (lat2 - lat1) * Math.PI / 180;
             double dLon = (lon2 - lon1) * Math.PI / 180;
 
@@ -879,9 +843,16 @@ namespace RoutingServer
                        Math.Cos(lat1) * Math.Cos(lat2);
 
             double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-            return R * c;
+            return EarthRadiusMeters * c;
         }
 
+        /// <summary>
+        /// Retrieves the three closest stations with available bikes.
+        /// </summary>
+        /// <param name="lat">Latitude of reference point</param>
+        /// <param name="lon">Longitude of reference point</param>
+        /// <param name="stations">List of available stations</param>
+        /// <returns>List of up to 3 closest stations with bikes</returns>
         private List<BikeStation> GetThreeClosestStartStations(
             double lat,
             double lon,
@@ -895,6 +866,13 @@ namespace RoutingServer
                 .ToList();
         }
 
+        /// <summary>
+        /// Retrieves the three closest stations with available stands.
+        /// </summary>
+        /// <param name="lat">Latitude of reference point</param>
+        /// <param name="lon">Longitude of reference point</param>
+        /// <param name="stations">List of available stations</param>
+        /// <returns>List of up to 3 closest stations with stands</returns>
         private List<BikeStation> GetThreeClosestEndStations(
             double lat,
             double lon,
@@ -908,13 +886,19 @@ namespace RoutingServer
                 .ToList();
         }
 
+        /// <summary>
+        /// Finds the JCDecaux contract for a given city name.
+        /// Uses fuzzy matching to handle variations in city names.
+        /// </summary>
+        /// <param name="city">City name to search for</param>
+        /// <returns>Contract name</returns>
+        /// <exception cref="Exception">Thrown when no matching contract is found</exception>
         private string FindContractForCity(string city)
         {
             if (string.IsNullOrEmpty(city))
                 throw new Exception("City name is empty");
 
-            string nc = Normalize(city);
-
+            string normalizedCity = Normalize(city);
             var contracts = _proxyClient.GetAvailableContracts();
 
             foreach (var contract in contracts)
@@ -922,26 +906,30 @@ namespace RoutingServer
                 if (contract.Cities == null || contract.Cities.Count == 0)
                     continue;
 
-                foreach (var city2 in contract.Cities)
+                foreach (var contractCity in contract.Cities)
                 {
-                    string nc2 = Normalize(city2);
+                    string normalizedContractCity = Normalize(contractCity);
 
-                    if (nc == nc2)
+                    if (normalizedCity == normalizedContractCity ||
+                        normalizedCity.StartsWith(normalizedContractCity) ||
+                        normalizedContractCity.StartsWith(normalizedCity))
+                    {
                         return contract.Name;
-
-                    if (nc.StartsWith(nc2))
-                        return contract.Name;
-
-                    if (nc2.StartsWith(nc))
-                        return contract.Name;
+                    }
                 }
             }
 
             throw new Exception($"No JCDecaux contract matches the city '{city}'");
         }
 
-        private List<(BikeStation station, double walkingDistance, ItineraryData walkData)>
-            ComputeRealWalkOriginToStations(
+        /// <summary>
+        /// Computes actual walking routes from origin to multiple station candidates.
+        /// </summary>
+        /// <param name="oLat">Origin latitude</param>
+        /// <param name="oLon">Origin longitude</param>
+        /// <param name="candidates">List of candidate stations</param>
+        /// <returns>List of stations with calculated walking distances and routes</returns>
+        private List<StationWalkResult> ComputeRealWalkOriginToStations(
                 double oLat,
                 double oLon,
                 List<BikeStation> candidates)
@@ -951,7 +939,12 @@ namespace RoutingServer
                 return System.Threading.Tasks.Task.Run(() =>
                 {
                     var walk = GetWalkingSegment(oLat, oLon, st.Position.Latitude, st.Position.Longitude);
-                    return (st, walk.TotalDistance, walk);
+                    return new StationWalkResult
+                    {
+                        station = st,
+                        walkingDistance = walk.TotalDistance,
+                        walkData = walk
+                    };
                 });
             }).ToArray();
 
@@ -959,8 +952,14 @@ namespace RoutingServer
             return results.ToList();
         }
 
-        private List<(BikeStation station, double walkingDistance, ItineraryData walkData)>
-            ComputeRealWalkStationsToDestination(
+        /// <summary>
+        /// Computes actual walking routes from multiple station candidates to destination.
+        /// </summary>
+        /// <param name="dLat">Destination latitude</param>
+        /// <param name="dLon">Destination longitude</param>
+        /// <param name="candidates">List of candidate stations</param>
+        /// <returns>List of stations with calculated walking distances and routes</returns>
+        private List<StationWalkResult> ComputeRealWalkStationsToDestination(
                 double dLat,
                 double dLon,
                 List<BikeStation> candidates)
@@ -970,7 +969,12 @@ namespace RoutingServer
                 return System.Threading.Tasks.Task.Run(() =>
                 {
                     var walk = GetWalkingSegment(st.Position.Latitude, st.Position.Longitude, dLat, dLon);
-                    return (st, walk.TotalDistance, walk);
+                    return new StationWalkResult
+                    {
+                        station = st,
+                        walkingDistance = walk.TotalDistance,
+                        walkData = walk
+                    };
                 });
             }).ToArray();
 
@@ -978,6 +982,11 @@ namespace RoutingServer
             return results.ToList();
         }
 
+        /// <summary>
+        /// Normalizes a string by removing spaces, accents, and converting to lowercase.
+        /// </summary>
+        /// <param name="s">String to normalize</param>
+        /// <returns>Normalized string</returns>
         private string Normalize(string s)
         {
             if (string.IsNullOrWhiteSpace(s))
@@ -997,6 +1006,173 @@ namespace RoutingServer
                 .Replace("ô", "o")
                 .Replace("î", "i")
                 .Replace("ç", "c");
+        }
+
+        #endregion
+
+        #region Multi-Contract Itinerary
+
+        /// <summary>
+        /// Computes an intelligent multi-contract itinerary for long distances.
+        /// Detects and uses all available contracts along the route.
+        /// Example: Nice → Lyon (uses bike) → Paris.
+        /// </summary>
+        /// <returns>Multi-contract itinerary result</returns>
+        private ItineraryResult ComputeMultiContractItinerary(
+            double oLat,
+            double oLon,
+            double dLat,
+            double dLon)
+        {
+            Console.WriteLine("[RoutingService] ========================================");
+            Console.WriteLine("[RoutingService] Computing multi-contract itinerary");
+            Console.WriteLine($"[RoutingService] Route: ({oLat}, {oLon}) → ({dLat}, {dLon})");
+
+            // 1️⃣ Détecter tous les contrats sur le trajet
+            var detector = new ContractDetector(_proxyClient);
+            var contractsOnRoute = detector.DetectContractsOnRoute(oLat, oLon, dLat, dLon);
+
+            if (contractsOnRoute.Count == 0)
+            {
+                Console.WriteLine("[RoutingService] No contracts found on route, falling back to walking");
+                return new ItineraryResult
+                {
+                    Success = true,
+                    Message = "walk",
+                    Data = GetWalkingSegment(oLat, oLon, dLat, dLon)
+                };
+            }
+
+            // 2️⃣ Construire l'itinéraire segment par segment
+            var segments = new List<ItineraryData>();
+            double currentLat = oLat;
+            double currentLon = oLon;
+
+            foreach (var contract in contractsOnRoute)
+            {
+                Console.WriteLine($"[RoutingService] Processing contract: {contract.ContractName}");
+
+                // 🚶 MARCHE : Position actuelle → Entrée du contrat
+                var entryStation = FindBestEntryStation(
+                    currentLat, currentLon,
+                    contract.Stations);
+
+                if (entryStation == null)
+                {
+                    Console.WriteLine($"[RoutingService] No available entry station in {contract.ContractName}");
+                    continue;
+                }
+
+                Console.WriteLine($"[RoutingService] Entry station: {entryStation.Name}");
+
+                var walkToEntry = GetWalkingSegment(
+                    currentLat, currentLon,
+                    entryStation.Position.Latitude,
+                    entryStation.Position.Longitude);
+
+                segments.Add(walkToEntry);
+
+                //  Traversée du contrat
+                var exitStation = FindBestExitStation(
+                    entryStation.Position.Latitude,
+                    entryStation.Position.Longitude,
+                    dLat, dLon,
+                    contract.Stations);
+
+                if (exitStation == null)
+                {
+                    Console.WriteLine($"[RoutingService] No available exit station in {contract.ContractName}");
+                    exitStation = entryStation; // Fallback
+                }
+
+                Console.WriteLine($"[RoutingService] Exit station: {exitStation.Name}");
+
+                var bikeSegment = GetBikingSegment(
+                    entryStation.Position.Latitude,
+                    entryStation.Position.Longitude,
+                    exitStation.Position.Latitude,
+                    exitStation.Position.Longitude);
+
+                segments.Add(bikeSegment);
+
+                // Mettre à jour position actuelle
+                currentLat = exitStation.Position.Latitude;
+                currentLon = exitStation.Position.Longitude;
+
+                Console.WriteLine($"[RoutingService] Current position updated: ({currentLat}, {currentLon})");
+            }
+
+            // 3️⃣ Dernier segment : Dernière position → Destination
+            Console.WriteLine("[RoutingService] Adding final segment to destination");
+            var finalWalk = GetWalkingSegment(currentLat, currentLon, dLat, dLon);
+            segments.Add(finalWalk);
+
+            // 4️⃣ Combiner tous les segments
+            Console.WriteLine($"[RoutingService] Combining {segments.Count} segments");
+
+            return CombineSegments(segments.ToArray(), "bike");
+        }
+
+        /// <summary>
+        /// Finds the best entry station close to the current position with available bikes.
+        /// </summary>
+        /// <param name="lat">Current latitude</param>
+        /// <param name="lon">Current longitude</param>
+        /// <param name="stations">Available stations</param>
+        /// <returns>Best entry station or null if none available</returns>
+        private BikeStation FindBestEntryStation(
+            double lat,
+            double lon,
+            List<BikeStation> stations)
+        {
+            var candidates = stations
+                .Where(s => s.Status == "OPEN")
+                .Where(s => s.TotalStands.Availabilities.Bikes > 0)
+                .OrderBy(s => Haversine(lat, lon, s.Position.Latitude, s.Position.Longitude))
+                .Take(5)
+                .ToList();
+
+            if (!candidates.Any()) return null;
+
+            // Calculer le trajet réel à pied pour chaque candidat
+            var realWalks = ComputeRealWalkOriginToStations(lat, lon, candidates);
+
+            return realWalks.OrderBy(x => x.walkingDistance).First().station;
+        }
+
+        /// <summary>
+        /// Finds the best exit station in the direction of the destination with available stands.
+        /// </summary>
+        /// <param name="currentLat">Current latitude</param>
+        /// <param name="currentLon">Current longitude</param>
+        /// <param name="destLat">Destination latitude</param>
+        /// <param name="destLon">Destination longitude</param>
+        /// <param name="stations">Available stations</param>
+        /// <returns>Best exit station or null if none available</returns>
+        private BikeStation FindBestExitStation(
+            double currentLat,
+            double currentLon,
+            double destLat,
+            double destLon,
+            List<BikeStation> stations)
+        {
+            var candidates = stations
+                .Where(s => s.Status == "OPEN")
+                .Where(s => s.TotalStands.Availabilities.Stands > 0)
+                .ToList();
+
+            if (!candidates.Any()) return null;
+
+            var scored = candidates.Select(s => new
+            {
+                Station = s,
+                DistToDest = Haversine(s.Position.Latitude, s.Position.Longitude, destLat, destLon),
+                Score = Haversine(s.Position.Latitude, s.Position.Longitude, destLat, destLon)
+            })
+            .OrderBy(x => x.Score)
+            .ToList();
+
+            return scored.First().Station;
         }
 
         #endregion

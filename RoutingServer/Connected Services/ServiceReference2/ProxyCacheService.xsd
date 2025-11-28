@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:tns="http://tempuri.org/" elementFormDefault="qualified" targetNamespace="http://tempuri.org/" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:import schemaLocation="http://localhost:8080/ProxyCacheService?xsd=xsd2" namespace="http://schemas.datacontract.org/2004/07/SharedModels" />
+  <xs:element name="GetAvailableContracts">
+    <xs:complexType>
+      <xs:sequence />
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="GetAvailableContractsResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element xmlns:q1="http://schemas.datacontract.org/2004/07/SharedModels" minOccurs="0" name="GetAvailableContractsResult" nillable="true" type="q1:ArrayOfBikeContract" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="GetStationsByContract">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element minOccurs="0" name="contractName" nillable="true" type="xs:string" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="GetStationsByContractResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element xmlns:q2="http://schemas.datacontract.org/2004/07/SharedModels" minOccurs="0" name="GetStationsByContractResult" nillable="true" type="q2:ArrayOfBikeStation" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="ComputeRoute">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element minOccurs="0" name="startLatitude" type="xs:double" />
+        <xs:element minOccurs="0" name="startLongitude" type="xs:double" />
+        <xs:element minOccurs="0" name="endLatitude" type="xs:double" />
+        <xs:element minOccurs="0" name="endLongitude" type="xs:double" />
+        <xs:element minOccurs="0" name="isBike" type="xs:boolean" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="ComputeRouteResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element minOccurs="0" name="ComputeRouteResult" nillable="true" type="xs:string" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="CallORS">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element minOccurs="0" name="profile" nillable="true" type="xs:string" />
+        <xs:element minOccurs="0" name="start" nillable="true" type="xs:string" />
+        <xs:element minOccurs="0" name="end" nillable="true" type="xs:string" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="CallORSResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element minOccurs="0" name="CallORSResult" nillable="true" type="xs:string" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

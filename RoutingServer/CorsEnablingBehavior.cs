@@ -5,6 +5,10 @@ using System.ServiceModel.Dispatcher;
 
 namespace RoutingServer
 {
+    /// <summary>
+    /// Endpoint behavior that enables Cross-Origin Resource Sharing (CORS) for REST endpoints.
+    /// Allows web applications from different origins to access the service.
+    /// </summary>
     public class CorsEnablingBehavior : IEndpointBehavior
     {
         public void AddBindingParameters(ServiceEndpoint endpoint, BindingParameterCollection bindingParameters) { }
@@ -19,6 +23,9 @@ namespace RoutingServer
         public void Validate(ServiceEndpoint endpoint) { }
     }
 
+    /// <summary>
+    /// Message inspector that adds CORS headers to HTTP responses.
+    /// </summary>
     public class CorsMessageInspector : IDispatchMessageInspector
     {
         public object AfterReceiveRequest(ref Message request, IClientChannel channel, InstanceContext instanceContext)
@@ -26,6 +33,11 @@ namespace RoutingServer
             return null;
         }
 
+        /// <summary>
+        /// Adds CORS headers to the HTTP response before sending.
+        /// </summary>
+        /// <param name="reply">The outgoing message</param>
+        /// <param name="correlationState">Correlation state (unused)</param>
         public void BeforeSendReply(ref Message reply, object correlationState)
         {
             var httpHeader = reply.Properties["httpResponse"] as System.ServiceModel.Channels.HttpResponseMessageProperty;

@@ -12,6 +12,10 @@ using System.Text;
 
 namespace ProxyCacheService
 {
+    /// <summary>
+    /// Implementation of the proxy cache service.
+    /// Provides caching layer for JCDecaux bike stations and OpenRouteService routing data.
+    /// </summary>
     [ServiceBehavior(InstanceContextMode = InstanceContextMode.Single)]
     public class ProxyCacheServiceImpl : IProxyCacheService
     {
@@ -38,27 +42,36 @@ namespace ProxyCacheService
             _contractsCache = new GenericProxyCache<Contracts>();
             _stationsCache = new GenericProxyCache<Stations>();
 
-            Console.WriteLine("[ProxyCache] Préchargement des contrats...");
+            Console.WriteLine("[ProxyCacheService] Preloading contracts data...");
             _ = GetAvailableContracts();
-            
-            Console.WriteLine("[ProxyCache] Préchargement des contrats populaires...");
+
+            Console.WriteLine("[ProxyCacheService] Preloading popular contracts...");
             ContractResolver.LoadPopularContractsAsync(this).Wait();
         }
 
+        /// <summary>
+        /// Computes a route between two coordinates.
+        /// </summary>
+        /// <param name="startLatitude">Starting point latitude</param>
+        /// <param name="startLongitude">Starting point longitude</param>
+        /// <param name="endLatitude">Ending point latitude</param>
+        /// <param name="endLongitude">Ending point longitude</param>
+        /// <param name="isBike">True for cycling route, false for walking route</param>
+        /// <returns>JSON string containing route data</returns>
         public string ComputeRoute(double startLatitude, double startLongitude, double endLatitude, double endLongitude, bool isBike)
         {
             string profile = isBike ? "cycling-regular" : "foot-walking";
             string cacheKey = $"route_{profile}_{startLatitude:F4}_{startLongitude:F4}_{endLatitude:F4}_{endLongitude:F4}";
 
-            Console.WriteLine($"[ProxyCache] → ComputeRoute({profile})");
-            Console.WriteLine($"Origine: ({startLatitude}, {startLongitude})");
-            Console.WriteLine($"Destination: ({endLatitude} ,  {endLongitude})");
+            Console.WriteLine($"[ProxyCacheService] Route computation requested: {profile}");
+            Console.WriteLine($"[ProxyCacheService] Origin: ({startLatitude}, {startLongitude})");
+            Console.WriteLine($"[ProxyCacheService] Destination: ({endLatitude}, {endLongitude})");
 
             try
             {
                 var cachedObj = _routeCache.GetOrAdd(cacheKey, 600, () =>
                 {
-                    Console.WriteLine("[Cache MISS] Appel API OpenRouteService...");
+                    Console.WriteLine("[ProxyCacheService] Cache miss, calling OpenRouteService API");
 
                     string url = $"https://api.openrouteservice.org/v2/directions/{profile}/json?" +
                         $"api_key={_ORSapiKey}&" +
@@ -74,7 +87,7 @@ namespace ProxyCacheService
                     }
 
                     string json = response.Content.ReadAsStringAsync().Result;
-                    Console.WriteLine($"Route calculée et mise en cache");
+                    Console.WriteLine("[ProxyCacheService] Route calculated and cached");
 
                     return new OpenRouteResult { Value = json };
                 });
@@ -83,50 +96,66 @@ namespace ProxyCacheService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ERREUR: {ex.Message}");
-                throw new FaultException($"Erreur calcul itinéraire: {ex.Message}");
+                Console.WriteLine($"[ProxyCacheService] ERROR: {ex.Message}");
+                throw new FaultException($"Route computation error: {ex.Message}");
             }
         }
 
+        /// <summary>
+        /// Retrieves all available JCDecaux contracts.
+        /// </summary>
+        /// <returns>List of bike-sharing contracts</returns>
         public List<BikeContract> GetAvailableContracts()
         {
-            Console.WriteLine("[INFO] Récupération des contrats via cache");
+            Console.WriteLine("[ProxyCacheService] Retrieving contracts via cache");
 
             string cacheKey = "jcdecaux_contracts";
-            
+
             var obj = _contractsCache.GetOrAdd(cacheKey, 86400, () => new Contracts(_httpClient));
 
             return obj.Items;
         }
 
+        /// <summary>
+        /// Retrieves all bike stations for a specific contract.
+        /// </summary>
+        /// <param name="contractName">Name of the JCDecaux contract</param>
+        /// <returns>List of bike stations in the contract</returns>
         public List<BikeStation> GetStationsByContract(string contractName)
         {
-            Console.WriteLine($"[INFO] Récupération des stations pour le contrat '{contractName}' via cache");
-            
+            Console.WriteLine($"[ProxyCacheService] Retrieving stations for contract '{contractName}' via cache");
+
             var obj = _stationsCache.GetOrAdd(contractName, 600, () => new Stations(_httpClient, contractName));
-            
+
             return obj.BikeStations;
         }
 
+        /// <summary>
+        /// Calls OpenRouteService API to compute a route.
+        /// </summary>
+        /// <param name="profile">Route profile (foot-walking or cycling-regular)</param>
+        /// <param name="start">Start coordinates as "lon,lat"</param>
+        /// <param name="end">End coordinates as "lon,lat"</param>
+        /// <returns>JSON string containing route data</returns>
         public string CallORS(string profile, string start, string end)
         {
             try
             {
                 string cacheKey = $"ORS_{profile}_{start}_{end}";
-                
+
                 var cached = _routeCache.GetOrAdd(cacheKey, 600, () =>
                 {
-                    Console.WriteLine("[ProxyCache] ORS Cache MISS → Appel API ORS");
+                    Console.WriteLine("[ProxyCacheService] ORS cache miss, calling API");
 
                     var startParts = start.Split(',');
                     var endParts = end.Split(',');
-                    
+
                     double startLon = double.Parse(startParts[0], CultureInfo.InvariantCulture);
                     double startLat = double.Parse(startParts[1], CultureInfo.InvariantCulture);
                     double endLon = double.Parse(endParts[0], CultureInfo.InvariantCulture);
                     double endLat = double.Parse(endParts[1], CultureInfo.InvariantCulture);
 
-                    Console.WriteLine($"[ProxyCache] Coordonnées parsées: ({startLon}, {startLat}) → ({endLon}, {endLat})");
+                    Console.WriteLine($"[ProxyCacheService] Parsed coordinates: ({startLon}, {startLat}) to ({endLon}, {endLat})");
 
                     string url = $"https://api.openrouteservice.org/v2/directions/{profile}/geojson";
 
@@ -157,17 +186,17 @@ namespace ProxyCacheService
                     }
 
                     string resultJson = response.Content.ReadAsStringAsync().Result;
-                    Console.WriteLine("[ProxyCache] ORS response cached.");
+                    Console.WriteLine("[ProxyCacheService] ORS response cached");
 
                     return new OpenRouteResult { Value = resultJson };
                 });
-                
+
                 return cached.Value;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ERREUR CallORS: {ex.Message}");
-                throw new FaultException($"Erreur CallORS: {ex.Message}");
+                Console.WriteLine($"[ProxyCacheService] ERROR in CallORS: {ex.Message}");
+                throw new FaultException($"ORS call error: {ex.Message}");
             }
         }
     }
