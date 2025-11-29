@@ -2,7 +2,7 @@
 // ContractDetector.cs
 // ========================================
 
-using RoutingServer.ServiceReference2;
+using RoutingServer.ServiceReference;
 using SharedModels;
 using System;
 using System.Collections.Generic;

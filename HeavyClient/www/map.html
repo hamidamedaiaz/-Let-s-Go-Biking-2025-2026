@@ -41,10 +41,10 @@
             z-index: 10;
         }
 
-        #instructions-header h2 {
-            margin: 0 0 10px 0;
-            font-size: 20px;
-        }
+            #instructions-header h2 {
+                margin: 0 0 10px 0;
+                font-size: 20px;
+            }
 
         #instructions-summary {
             font-size: 13px;
@@ -64,9 +64,9 @@
             cursor: pointer;
         }
 
-        .instruction-item:hover {
-            background: #f8f9fa;
-        }
+            .instruction-item:hover {
+                background: #f8f9fa;
+            }
 
         .instruction-number {
             display: inline-block;
@@ -140,13 +140,13 @@
             max-width: 250px;
         }
 
-        .legend h3 {
-            margin: 0 0 10px 0;
-            font-size: 16px;
-            color: #333;
-            border-bottom: 2px solid #007bff;
-            padding-bottom: 5px;
-        }
+            .legend h3 {
+                margin: 0 0 10px 0;
+                font-size: 16px;
+                color: #333;
+                border-bottom: 2px solid #007bff;
+                padding-bottom: 5px;
+            }
 
         .legend-item {
             display: flex;
@@ -174,11 +174,11 @@
             border-bottom: 1px solid #eee;
         }
 
-        .legend-section:last-child {
-            border-bottom: none;
-            margin-bottom: 0;
-            padding-bottom: 0;
-        }
+            .legend-section:last-child {
+                border-bottom: none;
+                margin-bottom: 0;
+                padding-bottom: 0;
+            }
 
         .legend-title {
             font-weight: bold;
@@ -213,7 +213,7 @@
         <!-- Map legend -->
         <div class="legend">
             <h3>Legend</h3>
-            
+
             <div class="legend-section">
                 <div class="legend-title">Route Segments</div>
                 <div class="legend-item">
@@ -295,7 +295,7 @@
         function formatDuration(seconds) {
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.floor((seconds % 3600) / 60);
-            
+
             if (hours > 0) {
                 return hours + 'h ' + minutes + 'min';
             } else {
@@ -442,14 +442,14 @@
          */
         window.drawStations = function(stations) {
             console.log("Drawing stations:", stations.length, "stations");
-            
+
             // Remove previous station markers
             stationMarkers.forEach(marker => map.removeLayer(marker));
             stationMarkers = [];
 
             stations.forEach(station => {
                 // Select icon color based on station type
-                let iconUrl = station.type === "pickup" 
+                let iconUrl = station.type === "pickup"
                     ? "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png"
                     : "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-violet.png";
 
