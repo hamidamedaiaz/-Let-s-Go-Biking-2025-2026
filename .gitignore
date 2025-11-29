@@ -410,8 +410,13 @@ FodyWeavers.xsd
 .nuget/
 ProxyCacheServer/config/jcdecaux.json
 
-.idea/
-*.iws
-*.iml
-launch_all.bat
 
+
+.idea/copilot.data.migration.agent.xml
+.idea/copilot.data.migration.ask.xml
+*.xml
+*.xsd
+*.svcmap
+*.wsdl
+*.svcinfo
+*.cs

@@ -29,7 +29,7 @@
       <xs:element minOccurs="0" name="Bonus" type="xs:boolean" />
       <xs:element minOccurs="0" name="Connected" type="xs:boolean" />
       <xs:element minOccurs="0" name="ContractName" nillable="true" type="xs:string" />
-      <xs:element minOccurs="0" name="LastUpdate" type="xs:dateTime" />
+      <xs:element minOccurs="0" name="LastUpdate" nillable="true" type="xs:dateTime" />
       <xs:element minOccurs="0" name="MainStands" nillable="true" type="tns:Stands" />
       <xs:element minOccurs="0" name="Name" nillable="true" type="xs:string" />
       <xs:element minOccurs="0" name="Number" type="xs:int" />

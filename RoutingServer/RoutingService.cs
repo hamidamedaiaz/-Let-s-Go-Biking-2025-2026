@@ -1,10 +1,9 @@
-﻿using SharedModels;
+﻿using RoutingServer.ServiceReference2;
+using SharedModels;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using RoutingServer.ServiceReference2;
-
 
 namespace RoutingServer
 {

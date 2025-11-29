@@ -1,0 +1,547 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Let's Go Biking - Route Map</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+
+    <style>
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Instructions panel on the left side */
+        #instructions-panel {
+            width: 350px;
+            height: 100%;
+            background: white;
+            overflow-y: auto;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            font-family: Arial, sans-serif;
+        }
+
+        #instructions-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        #instructions-header h2 {
+            margin: 0 0 10px 0;
+            font-size: 20px;
+        }
+
+        #instructions-summary {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+
+        #instructions-list {
+            padding: 0;
+            margin: 0;
+            list-style: none;
+        }
+
+        .instruction-item {
+            padding: 15px 20px;
+            border-bottom: 1px solid #eee;
+            transition: background 0.2s;
+            cursor: pointer;
+        }
+
+        .instruction-item:hover {
+            background: #f8f9fa;
+        }
+
+        .instruction-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 10px;
+            font-size: 14px;
+        }
+
+        .instruction-mode {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+
+        .mode-walk {
+            background: #6c757d;
+            color: white;
+        }
+
+        .mode-bike {
+            background: #007bff;
+            color: white;
+        }
+
+        .instruction-text {
+            margin: 10px 0 5px 40px;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .instruction-distance {
+            margin-left: 40px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        #map {
+            flex: 1;
+            height: 100%;
+        }
+
+        .moving-marker {
+            width: 24px;
+            height: 24px;
+            background-color: red;
+            border-radius: 50%;
+        }
+
+        /* Map legend */
+        .legend {
+            position: absolute;
+            bottom: 30px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            z-index: 1000;
+            font-family: Arial, sans-serif;
+            font-size: 13px;
+            max-width: 250px;
+        }
+
+        .legend h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 5px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+        }
+
+        .legend-line {
+            width: 40px;
+            height: 4px;
+            margin-right: 10px;
+            border-radius: 2px;
+        }
+
+        .legend-marker {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            border-radius: 50%;
+        }
+
+        .legend-section {
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .legend-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .legend-title {
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 5px;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <!-- Instructions panel -->
+        <div id="instructions-panel">
+            <div id="instructions-header">
+                <h2>Route Instructions</h2>
+                <div id="instructions-summary">
+                    <div id="total-distance">Distance: -</div>
+                    <div id="total-duration">Duration: -</div>
+                </div>
+            </div>
+            <ul id="instructions-list">
+                <li style="padding: 40px 20px; text-align: center; color: #999;">
+                    Loading itinerary...
+                </li>
+            </ul>
+        </div>
+
+        <!-- Map container -->
+        <div id="map"></div>
+
+        <!-- Map legend -->
+        <div class="legend">
+            <h3>Legend</h3>
+            
+            <div class="legend-section">
+                <div class="legend-title">Route Segments</div>
+                <div class="legend-item">
+                    <div class="legend-line" style="background-color: blue;"></div>
+                    <span>Bike</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-line" style="background-color: gray;"></div>
+                    <span>Walk</span>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <div class="legend-title">Key Points</div>
+                <div class="legend-item">
+                    <div class="legend-marker" style="background-color: green;"></div>
+                    <span>Start Point</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-marker" style="background-color: red;"></div>
+                    <span>End Point</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-marker" style="background-color: blue;"></div>
+                    <span>Current Position</span>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <div class="legend-title">Bike Stations</div>
+                <div class="legend-item">
+                    <div class="legend-marker" style="background-color: orange;"></div>
+                    <span>Pickup Station</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-marker" style="background-color: purple;"></div>
+                    <span>Dropoff Station</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize the Leaflet map centered on Lyon
+        var map = L.map('map').setView([45.75, 4.85], 13);
+
+        // Add OpenStreetMap tile layer
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19
+        }).addTo(map);
+
+        // Global map objects
+        var routePolyline = null;
+        var movingMarker = null;
+        var startMarker = null;
+        var endMarker = null;
+        var bikeStartMarker = null;
+        var bikeEndMarker = null;
+        var stationMarkers = [];
+
+        /**
+         * Formats a distance value in meters to a human-readable string.
+         * @param {number} meters - Distance in meters
+         * @returns {string} Formatted distance string
+         */
+        function formatDistance(meters) {
+            if (meters < 1000) {
+                return Math.round(meters) + ' m';
+            } else {
+                return (meters / 1000).toFixed(1) + ' km';
+            }
+        }
+
+        /**
+         * Formats a duration value in seconds to a human-readable string.
+         * @param {number} seconds - Duration in seconds
+         * @returns {string} Formatted duration string
+         */
+        function formatDuration(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            
+            if (hours > 0) {
+                return hours + 'h ' + minutes + 'min';
+            } else {
+                return minutes + ' min';
+            }
+        }
+
+        /**
+         * Displays step-by-step instructions in the instructions panel.
+         * @param {Array} steps - Array of instruction steps
+         * @param {number} totalDistance - Total route distance in meters
+         * @param {number} totalDuration - Total route duration in seconds
+         */
+        window.displayInstructions = function(steps, totalDistance, totalDuration) {
+            const list = document.getElementById('instructions-list');
+            list.innerHTML = '';
+
+            // Update summary information
+            document.getElementById('total-distance').textContent = 'Distance: ' + formatDistance(totalDistance);
+            document.getElementById('total-duration').textContent = 'Duration: ' + formatDuration(totalDuration);
+
+            steps.forEach((step, index) => {
+                const li = document.createElement('li');
+                li.className = 'instruction-item';
+
+                const modeClass = step.mode === 'WALK' ? 'mode-walk' : 'mode-bike';
+                const modeText = step.mode === 'WALK' ? 'Walk' : 'Bike';
+
+                li.innerHTML = `
+                    <div>
+                        <span class="instruction-number">${index + 1}</span>
+                        <span class="instruction-mode ${modeClass}">${modeText}</span>
+                    </div>
+                    <div class="instruction-text">${step.instruction || 'Continue'}</div>
+                    <div class="instruction-distance">
+                        ${formatDistance(step.distance)} | ${formatDuration(step.duration)}
+                    </div>
+                `;
+
+                list.appendChild(li);
+            });
+
+            console.log('Instructions displayed:', steps.length, 'steps');
+        };
+
+        /**
+         * Draws route segments on the map with different colors based on travel mode.
+         * @param {Array} segments - Array of route segments with mode and coordinate information
+         */
+        window.drawSegments = function(segments) {
+            console.log("Drawing segments:", segments.length, "segments");
+
+            // Remove previous layers
+            if (routePolyline) map.removeLayer(routePolyline);
+            if (startMarker) map.removeLayer(startMarker);
+            if (endMarker) map.removeLayer(endMarker);
+            if (bikeStartMarker) map.removeLayer(bikeStartMarker);
+            if (bikeEndMarker) map.removeLayer(bikeEndMarker);
+
+            // Color mapping for different travel modes
+            const colors = {
+                "WALK": "gray",
+                "BIKE": "blue"
+            };
+
+            let allPoints = [];
+
+            segments.forEach((seg, i) => {
+                let latlngs = seg.points.map(p => [p[0], p[1]]);
+                allPoints.push(...latlngs);
+
+                // Draw polyline with mode-specific color
+                L.polyline(latlngs, {
+                    color: colors[seg.mode] || "gray",
+                    weight: 5
+                }).addTo(map);
+
+                // Add bike pickup marker (first BIKE segment)
+                if (seg.mode === "BIKE" && !bikeStartMarker) {
+                    bikeStartMarker = L.marker(latlngs[0], {
+                        icon: L.icon({
+                            iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
+                            iconSize: [32, 32],
+                            iconAnchor: [16, 32]
+                        })
+                    }).addTo(map);
+                }
+
+                // Update bike dropoff marker (last BIKE segment)
+                if (seg.mode === "BIKE") {
+                    if (bikeEndMarker) map.removeLayer(bikeEndMarker);
+                    bikeEndMarker = L.marker(latlngs[latlngs.length-1], {
+                        icon: L.icon({
+                            iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
+                            iconSize: [32, 32],
+                            iconAnchor: [16, 32]
+                        })
+                    }).addTo(map);
+                }
+            });
+
+            // Add start marker (green)
+            startMarker = L.marker(allPoints[0], {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41]
+                })
+            }).addTo(map);
+
+            // Add end marker (red)
+            endMarker = L.marker(allPoints[allPoints.length - 1], {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41]
+                })
+            }).addTo(map);
+
+            // Add animated position marker (blue)
+            if (movingMarker) map.removeLayer(movingMarker);
+            movingMarker = L.marker(allPoints[0], {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41]
+                })
+            }).addTo(map);
+
+            // Adjust map view to show the entire route
+            if (allPoints.length > 0) {
+                map.fitBounds([allPoints[0], allPoints[allPoints.length - 1]]);
+            }
+
+            console.log("Map drawn successfully with", allPoints.length, "points");
+        };
+
+        /**
+         * Displays bike station markers on the map.
+         * @param {Array} stations - Array of station objects with location and type information
+         */
+        window.drawStations = function(stations) {
+            console.log("Drawing stations:", stations.length, "stations");
+            
+            // Remove previous station markers
+            stationMarkers.forEach(marker => map.removeLayer(marker));
+            stationMarkers = [];
+
+            stations.forEach(station => {
+                // Select icon color based on station type
+                let iconUrl = station.type === "pickup" 
+                    ? "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png"
+                    : "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-violet.png";
+
+                let marker = L.marker([station.lat, station.lon], {
+                    icon: L.icon({
+                        iconUrl: iconUrl,
+                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41]
+                    })
+                }).addTo(map);
+
+                // Add popup with station information
+                let popupContent = `
+                    <b>${station.name}</b><br>
+                    <span style="color: ${station.type === 'pickup' ? 'orange' : 'purple'}">
+                        ${station.type === 'pickup' ? 'Pickup Station' : 'Dropoff Station'}
+                    </span><br>
+                    Available Bikes: ${station.bikes}<br>
+                    Available Stands: ${station.stands}
+                `;
+
+                marker.bindPopup(popupContent);
+                stationMarkers.push(marker);
+            });
+
+            console.log("Displayed", stations.length, "station markers");
+        };
+
+        /**
+         * Draws a simple route on the map (legacy method for compatibility).
+         * @param {Array} points - Array of coordinate points [lat, lon]
+         */
+        window.drawRoute = function (points) {
+            console.log("Drawing route with", points.length, "points");
+
+            // Remove previous route
+            if (routePolyline) map.removeLayer(routePolyline);
+            if (startMarker) map.removeLayer(startMarker);
+            if (endMarker) map.removeLayer(endMarker);
+
+            // Draw the polyline
+            routePolyline = L.polyline(points, { color: 'blue' }).addTo(map);
+            map.fitBounds(routePolyline.getBounds());
+
+            // Add start marker (green)
+            startMarker = L.marker(points[0], {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41]
+                })
+            }).addTo(map);
+
+            // Add end marker (red)
+            endMarker = L.marker(points[points.length - 1], {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41]
+                })
+            }).addTo(map);
+
+            // Add animated marker (blue)
+            if (movingMarker) map.removeLayer(movingMarker);
+            movingMarker = L.marker(points[0], {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41]
+                })
+            }).addTo(map);
+
+            console.log("Route drawn successfully");
+        };
+
+        /**
+         * Updates the position of the animated marker.
+         * @param {number} lat - Latitude coordinate
+         * @param {number} lng - Longitude coordinate
+         */
+        window.moveMarker = function (lat, lng) {
+            if (movingMarker) {
+                movingMarker.setLatLng([lat, lng]);
+            }
+        };
+
+        console.log("Map initialized successfully");
+    </script>
+
+</body>
+</html>

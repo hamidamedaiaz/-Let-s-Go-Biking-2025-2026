@@ -1,7 +1,10 @@
-﻿using System;
-using System.Threading;
-using Apache.NMS;
+﻿using Apache.NMS;
 using Apache.NMS.ActiveMQ;
+using System;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Text.Json;
 
 namespace NotificationService
 {
@@ -173,8 +176,18 @@ namespace NotificationService
                     return $"STATION FULL: {city} - '{GetRandomStationName(rand)}' - No parking spaces available";
 
                 case "WEATHER_WARNING":
+                    // ----------------------------
+                    // REAL WEATHER ALERT FROM API
+                    // ----------------------------
+                    string realAlert = FetchRealWeatherAlert(city).Result;
+
+                    if (realAlert != null)
+                        return realAlert;
+
+                    // fallback random si pas d’alerte trouvée
                     string[] warnings = { "Heavy rain", "Strong wind", "Snow", "Thunderstorm" };
                     return $"WEATHER WARNING: {city} - {warnings[rand.Next(warnings.Length)]} - Be careful!";
+
 
                 case "TRAFFIC_ALERT":
                     return $"TRAFFIC ALERT: {city} - Heavy congestion, consider using bikes";
@@ -243,5 +256,73 @@ namespace NotificationService
                     return 5000; // 5 seconds (normal)
             }
         }
+
+        static async Task<string> FetchRealWeatherAlert(string city)
+        {
+            try
+            {
+                // coordinates by city
+                double lat;
+                double lon;
+                
+                switch (city)
+                {
+                    case "Lyon":
+                        lat = 45.75;
+                        lon = 4.85;
+                        break;
+                    case "Paris":
+                        lat = 48.85;
+                        lon = 2.35;
+                        break;
+                    case "Nantes":
+                        lat = 47.22;
+                        lon = -1.55;
+                        break;
+                    case "Toulouse":
+                        lat = 43.60;
+                        lon = 1.44;
+                        break;
+                    default: // default: Lyon
+                        lat = 45.75;
+                        lon = 4.85;
+                        break;
+                }
+
+                string url =
+                    $"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&forecast_days=1&timezone=Europe/Paris&weather_alerts=true";
+
+                using (var http = new HttpClient())
+                {
+                    string json = await http.GetStringAsync(url);
+
+                    using (var doc = JsonDocument.Parse(json))
+                    {
+                        JsonElement alertsObj;
+                        if (!doc.RootElement.TryGetProperty("weather_alerts", out alertsObj))
+                            return null;
+
+                        JsonElement alertsArray;
+                        if (!alertsObj.TryGetProperty("alerts", out alertsArray))
+                            return null;
+
+                        if (alertsArray.GetArrayLength() == 0)
+                            return null;
+
+                        var alert = alertsArray[0];
+                        string eventName = alert.GetProperty("event").GetString();
+                        string description = alert.GetProperty("description").GetString();
+
+                        return $"WEATHER WARNING: {city} - {eventName} - {description}";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Weather API error: {ex.Message}");
+                return null; // in case of error → return nothing
+            }
+        }
+
     }
 }
